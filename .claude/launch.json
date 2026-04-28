@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "refs",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "7832"],
+      "port": 7832
+    },
+    {
+      "name": "game",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "${workspaceFolder}/game",
+      "port": 5173
+    }
+  ]
+}

@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Synthwave Stage — Mockup v3</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0010;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px 16px 60px;
+      font-family: 'Courier New', monospace;
+      gap: 6px;
+    }
+    h1 { color: #ff2d9b; font-size: 13px; letter-spacing: 5px; text-transform: uppercase; margin-top: 6px;
+         text-shadow: 0 0 12px #ff2d9b, 0 0 24px #ff2d9b88; }
+    p  { font-size: 10px; letter-spacing: 1px; color: #8855bb; }
+    canvas { display: block; cursor: crosshair; }
+    #hint { font-size: 10px; color: #44226a; letter-spacing: 1px; margin-top: 6px; }
+  </style>
+</head>
+<body>
+<h1>⬡ SYNTHWAVE STAGE — MOCKUP v3 ⬡</h1>
+<p>Circle tiles with CRT scanlines · Bold front-facing guitar silhouettes · Hover to preview glow</p>
+<canvas id="c"></canvas>
+<div id="hint">open in browser · give feedback · iterate until approved</div>
+<script>
+'use strict';
+
+const C = document.getElementById('c');
+const ctx = C.getContext('2d');
+
+// ─── Layout ──────────────────────────────────────────────────────────────────
+const W = 960;
+const TILE_SZ = 84;   // tile draw diameter (circle)
+const CELL_W  = W / 3;
+const CELL_H  = 140;
+const SEC_H   = 34;
+const PAD     = 16;
+
+const BT = 50, BG = 6, BCOLS = 4;
+const BOARD_PX = BCOLS * (BT + BG) + BG;  // 230
+
+const GRID_Y   = SEC_H + PAD;
+const BOARD_Y  = GRID_Y + 3 * CELL_H + PAD + SEC_H + PAD;
+const PAL_Y    = BOARD_Y + BOARD_PX + PAD * 2 + SEC_H + PAD;
+const H        = PAL_Y + 58 + PAD * 2;
+
+C.width = W; C.height = H;
+
+// ─── Outrun Palette ───────────────────────────────────────────────────────────
+const P = {
+  skyDeep : '#0a0010',
+  skyMid  : '#2d0050',
+  skyHoriz: '#8b0060',
+  hotPink : '#ff2d9b',
+  cyan    : '#00f5ff',
+  magenta : '#ff00dd',
+  orange  : '#ff7700',
+  yellow  : '#ffdd00',
+  purple  : '#bb44ff',
+  chrome  : '#dde0ff',
+  tileBg  : '#0e0020',
+};
+
+const GLOWS = [P.cyan, P.orange, P.orange, P.cyan, P.magenta, P.yellow, P.purple, P.cyan, P.yellow];
+const NAMES = ['Record','Fire','Amp','Stratocaster','Les Paul','Private Jet','Cassette','Headphones','Beer'];
+
+// ─── Seeded stars ─────────────────────────────────────────────────────────────
+const STARS = Array.from({length: 110}, (_, i) => {
+  let s = (i * 2654435761) >>> 0;
+  const n = () => { s ^= s<<13; s ^= s>>17; s ^= s<<5; return (s>>>0)/4294967296; };
+  return { x: n()*W, y: n()*H*0.55, r: n()<0.12 ? 1.8 : 0.8, a: 0.5+n()*0.5 };
+});
+
+// ─── Background ───────────────────────────────────────────────────────────────
+function drawBg() {
+  // Sky
+  const skyG = ctx.createLinearGradient(0, 0, 0, H * 0.62);
+  skyG.addColorStop(0, P.skyDeep); skyG.addColorStop(0.5, P.skyMid); skyG.addColorStop(1, P.skyHoriz);
+  ctx.fillStyle = skyG; ctx.fillRect(0, 0, W, H * 0.62);
+  // Stars
+  for (const s of STARS) {
+    ctx.globalAlpha = s.a; ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  // Sun halo
+  const sunCX = W/2, sunY = H*0.58, sunR = H*0.22;
+  const sg = ctx.createRadialGradient(sunCX, sunY, sunR*0.4, sunCX, sunY, sunR*1.5);
+  sg.addColorStop(0, '#ff990060'); sg.addColorStop(1, 'transparent');
+  ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(sunCX, sunY, sunR*1.5, 0, Math.PI*2); ctx.fill();
+  // Sun body
+  ctx.save();
+  ctx.beginPath(); ctx.arc(sunCX, sunY, sunR, Math.PI, 0); ctx.closePath(); ctx.clip();
+  const sunG = ctx.createLinearGradient(0, sunY-sunR, 0, sunY);
+  sunG.addColorStop(0, P.yellow); sunG.addColorStop(0.4, P.orange); sunG.addColorStop(1, '#ff2d9b');
+  ctx.fillStyle = sunG; ctx.fill();
+  for (let i = 0; i < 8; i++) {
+    const t = i/8, sy = sunY - sunR + t*sunR*0.88;
+    ctx.fillStyle = P.skyHoriz; ctx.fillRect(sunCX - sunR, sy, sunR*2, 2 + i*0.8);
+  }
+  ctx.restore();
+  // Ground
+  const horizY = H*0.60;
+  const gndG = ctx.createLinearGradient(0, horizY, 0, H);
+  gndG.addColorStop(0, '#1a0035'); gndG.addColorStop(1, '#0a0018');
+  ctx.fillStyle = gndG; ctx.fillRect(0, horizY, W, H - horizY);
+  // Perspective grid
+  const vp = { x: W/2, y: horizY };
+  ctx.save();
+  for (let i = 0; i <= 20; i++) {
+    const t = i/20, bx = -W*0.4 + t*W*1.8;
+    const alpha = (0.15 + 0.55*(1 - Math.abs(t-0.5)*2)) * 0.7;
+    ctx.strokeStyle = '#ff00cc'; ctx.globalAlpha = alpha; ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.moveTo(vp.x, vp.y); ctx.lineTo(bx, H); ctx.stroke();
+  }
+  for (let i = 1; i <= 10; i++) {
+    const t = (i/10)*(i/10);
+    ctx.strokeStyle = '#ff00cc'; ctx.globalAlpha = (0.12 + 0.55*t)*0.7; ctx.lineWidth = 0.8;
+    const gy = horizY + (H - horizY)*t;
+    ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(W, gy); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  // Horizon glow line
+  ctx.shadowColor = P.hotPink; ctx.shadowBlur = 18;
+  ctx.strokeStyle = P.hotPink; ctx.lineWidth = 2; ctx.globalAlpha = 0.85;
+  ctx.beginPath(); ctx.moveTo(0, horizY); ctx.lineTo(W, horizY); ctx.stroke();
+  ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+  ctx.restore();
+}
+
+// ─── Section header ───────────────────────────────────────────────────────────
+function sectionHeader(y, text) {
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,0,150,0.07)'; ctx.fillRect(0, y, W, SEC_H);
+  ctx.shadowColor = P.hotPink; ctx.shadowBlur = 8;
+  ctx.strokeStyle = P.hotPink; ctx.lineWidth = 0.5; ctx.globalAlpha = 0.4;
+  ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = P.hotPink; ctx.font = 'bold 10px "Courier New"';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText('▶  ' + text, PAD, y + SEC_H/2);
+  ctx.restore();
+}
+
+// ─── CIRCLE tile background with CRT scanlines ───────────────────────────────
+function tileBg(cx, cy, sz, glow, hot) {
+  const r = sz * 0.50;
+  ctx.save();
+  // Outer glow halo
+  ctx.shadowColor = glow;
+  ctx.shadowBlur = hot ? 32 : 14;
+  // Dark fill
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2);
+  ctx.fillStyle = P.tileBg; ctx.fill();
+  ctx.restore();
+
+  // Scanlines (clipped to circle, no shadow)
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.clip();
+  ctx.strokeStyle = 'rgba(0,0,0,0.22)'; ctx.lineWidth = 1;
+  for (let y = cy - r; y < cy + r; y += 3) {
+    ctx.beginPath(); ctx.moveTo(cx - r, y); ctx.lineTo(cx + r, y); ctx.stroke();
+  }
+  // Subtle inner vignette gradient
+  const vg = ctx.createRadialGradient(cx, cy, r*0.4, cx, cy, r);
+  vg.addColorStop(0, 'transparent'); vg.addColorStop(1, 'rgba(0,0,0,0.45)');
+  ctx.fillStyle = vg; ctx.fillRect(cx-r, cy-r, r*2, r*2);
+  ctx.restore();
+
+  // Neon ring
+  ctx.save();
+  ctx.shadowColor = glow; ctx.shadowBlur = hot ? 16 : 8;
+  ctx.strokeStyle = glow + (hot ? 'ee' : '55');
+  ctx.lineWidth = hot ? 2.5 : 1.5;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.stroke();
+  // Outer dim ring
+  ctx.strokeStyle = glow + '22'; ctx.lineWidth = 1; ctx.shadowBlur = 0;
+  ctx.beginPath(); ctx.arc(cx, cy, r + 4, 0, Math.PI*2); ctx.stroke();
+  ctx.restore();
+}
+
+// ─── Clip art to circle ───────────────────────────────────────────────────────
+function withCircleClip(cx, cy, sz, fn) {
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, sz*0.46, 0, Math.PI*2); ctx.clip();
+  fn();
+  ctx.restore();
+}
+
+function neonGlow(color, blur, fn) {
+  ctx.save(); ctx.shadowColor = color; ctx.shadowBlur = blur; fn(); ctx.restore();
+}
+
+// ─── Pixel-art renderer ───────────────────────────────────────────────────────
+function drawPixelArt(cx, cy, sz, grid, colorMap, glowColor) {
+  const cols = grid[0].length, rows = grid.length;
+  const px = Math.min(Math.floor(sz * 0.85 / cols), Math.floor(sz * 0.85 / rows));
+  const ox = Math.round(cx - (cols * px) / 2);
+  const oy = Math.round(cy - (rows * px) / 2);
+  ctx.save();
+  ctx.shadowColor = glowColor; ctx.shadowBlur = 10;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const v = grid[r][c];
+      if (v === 0) continue;
+      ctx.fillStyle = colorMap[v];
+      ctx.fillRect(ox + c * px, oy + r * px, px, px);
+    }
+  }
+  ctx.restore();
+}
+
+// ─── Tile draw functions ──────────────────────────────────────────────────────
+
+function drawRecord(cx, cy, sz) {
+  const r = sz * 0.42;
+  neonGlow(P.cyan, 14, () => {
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2);
+    ctx.fillStyle = '#080c14'; ctx.fill();
+    for (let i = 1; i <= 5; i++) {
+      ctx.beginPath(); ctx.arc(cx, cy, r*(0.93-i*0.12), 0, Math.PI*2);
+      ctx.strokeStyle = i%2===0 ? '#1a2436' : '#0e1520';
+      ctx.lineWidth = 1.5; ctx.stroke();
+    }
+    const lg = ctx.createRadialGradient(cx, cy, 0, cx, cy, r*0.30);
+    lg.addColorStop(0, P.hotPink); lg.addColorStop(1, P.magenta);
+    ctx.beginPath(); ctx.arc(cx, cy, r*0.30, 0, Math.PI*2);
+    ctx.fillStyle = lg; ctx.fill();
+    ctx.beginPath(); ctx.arc(cx, cy, r*0.065, 0, Math.PI*2);
+    ctx.fillStyle = P.tileBg; ctx.fill();
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2);
+    ctx.strokeStyle = P.cyan+'66'; ctx.lineWidth = 1.5; ctx.stroke();
+  });
+}
+
+function drawFire(cx, cy, sz) {
+  const h = sz*0.82, w = sz*0.52, top = cy-h/2, bot = cy+h/2;
+  neonGlow(P.orange, 18, () => {
+    ctx.beginPath();
+    ctx.moveTo(cx, top);
+    ctx.bezierCurveTo(cx+w*0.5, cy-h*0.12, cx+w*0.56, cy+h*0.18, cx+w*0.38, bot);
+    ctx.bezierCurveTo(cx+w*0.1, bot+3, cx-w*0.1, bot+3, cx-w*0.38, bot);
+    ctx.bezierCurveTo(cx-w*0.56, cy+h*0.18, cx-w*0.5, cy-h*0.12, cx, top);
+    ctx.fillStyle = P.hotPink; ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx, top+h*0.15);
+    ctx.bezierCurveTo(cx+w*0.32, cy-h*0.06, cx+w*0.34, cy+h*0.20, cx+w*0.20, bot-7);
+    ctx.bezierCurveTo(cx, bot-2, cx-w*0.20, bot-7, cx-w*0.34, cy+h*0.20);
+    ctx.bezierCurveTo(cx-w*0.32, cy-h*0.06, cx, top+h*0.15, cx, top+h*0.15);
+    ctx.fillStyle = P.orange; ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx, top+h*0.33);
+    ctx.bezierCurveTo(cx+w*0.17, cy+h*0.05, cx+w*0.17, cy+h*0.26, cx+w*0.09, bot-12);
+    ctx.bezierCurveTo(cx, bot-8, cx-w*0.09, bot-12, cx-w*0.17, cy+h*0.26);
+    ctx.bezierCurveTo(cx-w*0.17, cy+h*0.05, cx, top+h*0.33, cx, top+h*0.33);
+    ctx.fillStyle = P.yellow; ctx.fill();
+  });
+}
+
+function drawAmp(cx, cy, sz) {
+  const w=sz*0.84, h=sz*0.80, x=cx-w/2, y=cy-h/2;
+  neonGlow(P.orange, 14, () => {
+    ctx.beginPath(); ctx.roundRect(x, y, w, h, 4);
+    ctx.fillStyle = '#130900'; ctx.fill();
+    ctx.strokeStyle = P.orange+'66'; ctx.lineWidth = 1.5; ctx.stroke();
+    const ph = h*0.24;
+    ctx.beginPath(); ctx.roundRect(x+2, y+2, w-4, ph, [3,3,0,0]);
+    ctx.fillStyle = '#1e0e00'; ctx.fill();
+    [0.25,0.5,0.75].forEach(p => {
+      const kx=x+w*p, ky=y+ph*0.55;
+      neonGlow(P.yellow, 6, () => {
+        ctx.beginPath(); ctx.arc(kx, ky, 5, 0, Math.PI*2);
+        ctx.fillStyle = P.yellow; ctx.fill();
+      });
+      ctx.beginPath(); ctx.moveTo(kx, ky); ctx.lineTo(kx, ky-5.5);
+      ctx.strokeStyle = '#080400'; ctx.lineWidth = 1.5; ctx.stroke();
+    });
+    const gr=(h-ph)*0.40, gx=cx, gy=y+ph+(h-ph)*0.52;
+    ctx.beginPath(); ctx.arc(gx, gy, gr, 0, Math.PI*2);
+    ctx.fillStyle='#0c0600'; ctx.fill();
+    ctx.strokeStyle=P.orange+'44'; ctx.lineWidth=1; ctx.stroke();
+    ctx.save();
+    ctx.beginPath(); ctx.arc(gx, gy, gr-1, 0, Math.PI*2); ctx.clip();
+    ctx.strokeStyle='#1a0c00'; ctx.lineWidth=1;
+    for (let i=-gr*2; i<gr*2; i+=5) {
+      ctx.beginPath(); ctx.moveTo(gx+i, gy-gr); ctx.lineTo(gx+i+gr*2, gy+gr); ctx.stroke();
+    }
+    ctx.restore();
+    neonGlow(P.orange, 10, () => {
+      ctx.beginPath(); ctx.arc(gx, gy, gr*0.32, 0, Math.PI*2);
+      ctx.fillStyle=P.orange; ctx.globalAlpha=0.5; ctx.fill(); ctx.globalAlpha=1;
+    });
+  });
+}
+
+// ── STRATOCASTER — pixel-art double-cutaway silhouette ───────────────────────
+// 0=empty  1=body/neck(cyan)  2=pickguard(light)  3=pickup(dark)
+// Portrait: headstock top → body bottom. 7×14 grid → px=5 at sz=84 → 35×70px
+function drawStrat(cx, cy, sz) {
+  const G = [
+    [1,1,0,0,0,0,0],  // row  0: headstock tip — bass side (Fender 6-in-line asymmetric)
+    [1,1,1,0,0,0,0],  // row  1: headstock widens
+    [0,1,1,1,0,0,0],  // row  2: headstock base, bass-biased
+    [0,0,1,1,0,0,0],  // row  3: nut
+    [0,0,1,1,0,0,0],  // row  4: neck
+    [1,0,1,1,0,0,0],  // row  5: bass horn col 0 + neck; treble side absent (bass horn taller)
+    [1,0,1,1,0,1,1],  // row  6: both horns + neck; gaps at cols 1 and 4 = double cutaway
+    [1,1,1,1,1,1,1],  // row  7: upper bout full width
+    [1,2,3,3,3,2,1],  // row  8: neck pickup (single coil)
+    [1,2,2,2,2,2,1],  // row  9: pickguard gap
+    [1,2,3,3,3,2,1],  // row 10: middle pickup
+    [1,2,2,2,2,2,1],  // row 11: pickguard gap
+    [1,2,3,3,3,2,1],  // row 12: bridge pickup
+    [1,1,1,1,1,1,1],  // row 13: lower bout
+  ];
+  withCircleClip(cx, cy, sz, () =>
+    drawPixelArt(cx, cy, sz, G, {1:'#00c8ff', 2:'#d8f0ff', 3:'#001822'}, P.cyan)
+  );
+}
+
+// ── LES PAUL — pixel-art single-cutaway silhouette ───────────────────────────
+// 0=empty  1=body/neck(magenta)  3=humbucker(dark)
+// Portrait: headstock top → body bottom. 7×14 grid → px=5 at sz=84 → 35×70px
+function drawLesPaul(cx, cy, sz) {
+  const G = [
+    [0,1,1,1,1,1,0],  // row  0: Gibson headstock — symmetric 5 wide (3+3 tuners)
+    [0,1,1,1,1,1,0],  // row  1: headstock same width (rectangular, not tapered like Fender)
+    [0,0,1,1,1,0,0],  // row  2: headstock tapers to nut
+    [0,0,1,1,0,0,0],  // row  3: nut
+    [0,0,1,1,0,0,0],  // row  4: neck
+    [0,0,1,1,0,0,0],  // row  5: neck
+    [1,1,1,1,0,0,0],  // row  6: SINGLE CUTAWAY — bass shoulder cols 0-3; treble side empty
+    [1,1,1,1,1,1,1],  // row  7: upper bout full width
+    [1,3,3,3,3,3,1],  // row  8: neck humbucker — top row (5 wide)
+    [1,3,3,3,3,3,1],  // row  9: neck humbucker — bottom row (2-row height = humbucker)
+    [1,1,1,1,1,1,1],  // row 10: body between humbuckers
+    [1,3,3,3,3,3,1],  // row 11: bridge humbucker — top row
+    [1,3,3,3,3,3,1],  // row 12: bridge humbucker — bottom row
+    [1,1,1,1,1,1,1],  // row 13: lower bout
+  ];
+  withCircleClip(cx, cy, sz, () =>
+    drawPixelArt(cx, cy, sz, G, {1:'#ff2d9b', 3:'#220008'}, P.magenta)
+  );
+}
+
+function drawJet(cx, cy, sz) {
+  const fw=sz*0.82, fh=sz*0.17;
+  withCircleClip(cx, cy, sz, () => {
+    neonGlow(P.yellow, 14, () => {
+      ctx.save(); ctx.translate(cx, cy);
+      const fg = ctx.createLinearGradient(0,-fh/2,0,fh/2);
+      fg.addColorStop(0,'#eeeeff'); fg.addColorStop(0.5,P.chrome); fg.addColorStop(1,'#888899');
+      ctx.beginPath();
+      ctx.moveTo(-fw*0.5+4, 0);
+      ctx.bezierCurveTo(-fw*0.5+4,-fh/2,-fw*0.28,-fh/2,0,-fh/2);
+      ctx.lineTo(fw*0.44,-fh/2);
+      ctx.bezierCurveTo(fw*0.5,-fh/2,fw*0.5,fh/2,fw*0.44,fh/2);
+      ctx.lineTo(0,fh/2);
+      ctx.bezierCurveTo(-fw*0.28,fh/2,-fw*0.5+4,fh/2,-fw*0.5+4,0);
+      ctx.closePath();
+      ctx.fillStyle=fg; ctx.fill();
+      neonGlow(P.yellow, 6, () => {
+        ctx.beginPath(); ctx.moveTo(-fw*0.28,-1.5); ctx.lineTo(fw*0.42,-1.5);
+        ctx.strokeStyle=P.yellow; ctx.lineWidth=3; ctx.stroke();
+      });
+      ctx.beginPath();
+      ctx.moveTo(-fw*0.05,fh/2); ctx.lineTo(fw*0.18,sz*0.43); ctx.lineTo(fw*0.32,fh/2);
+      ctx.fillStyle='#aaaacc'; ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(fw*0.30,-fh/2); ctx.lineTo(fw*0.38,-fh/2-sz*0.26);
+      ctx.lineTo(fw*0.50,-fh/2-sz*0.10); ctx.lineTo(fw*0.50,-fh/2);
+      ctx.fillStyle=P.chrome; ctx.fill();
+      ctx.beginPath(); ctx.moveTo(fw*0.32,-fh/2-sz*0.02); ctx.lineTo(fw*0.38,-fh/2-sz*0.20);
+      ctx.strokeStyle=P.hotPink; ctx.lineWidth=1.5; ctx.stroke();
+      for (let i=0;i<4;i++) {
+        neonGlow(P.cyan, 6, () => {
+          ctx.beginPath(); ctx.ellipse(-fw*0.08+i*fw*0.12,-fh*0.08,3,2.2,0,0,Math.PI*2);
+          ctx.fillStyle=P.cyan; ctx.globalAlpha=0.85; ctx.fill(); ctx.globalAlpha=1;
+        });
+      }
+      ctx.restore();
+    });
+  });
+}
+
+function drawCassette(cx, cy, sz) {
+  const w=sz*0.84, h=sz*0.60, x=cx-w/2, y=cy-h/2;
+  neonGlow(P.purple, 14, () => {
+    ctx.beginPath(); ctx.roundRect(x, y, w, h, 6);
+    ctx.fillStyle='#0c0018'; ctx.fill();
+    ctx.strokeStyle=P.purple; ctx.lineWidth=1.5; ctx.stroke();
+    const lh=h*0.30;
+    const lg=ctx.createLinearGradient(x,y+3,x+w,y+3);
+    lg.addColorStop(0,'#1a0038'); lg.addColorStop(0.5,'#330066'); lg.addColorStop(1,'#1a0038');
+    ctx.fillStyle=lg;
+    ctx.beginPath(); ctx.roundRect(x+3,y+3,w-6,lh,[4,4,0,0]); ctx.fill();
+    neonGlow(P.purple, 8, () => {
+      ctx.fillStyle=P.purple; ctx.font='bold 6px "Courier New"';
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText('★ SYNTHWAVE ★', cx, y+lh*0.5+3);
+    });
+    const wx=cx-w*0.30, wy=y+h*0.38, ww=w*0.60, wh=h*0.38;
+    ctx.fillStyle='#080010';
+    ctx.beginPath(); ctx.roundRect(wx,wy,ww,wh,3); ctx.fill();
+    ctx.strokeStyle=P.purple+'44'; ctx.lineWidth=0.8; ctx.stroke();
+    [[-ww*0.27,0],[ww*0.27,0]].forEach(([ox]) => {
+      const rx=cx+ox, ry=wy+wh/2, rr=wh*0.38;
+      neonGlow(P.purple, 8, () => {
+        ctx.beginPath(); ctx.arc(rx,ry,rr,0,Math.PI*2); ctx.fillStyle=P.purple; ctx.fill();
+      });
+      ctx.beginPath(); ctx.arc(rx,ry,rr*0.44,0,Math.PI*2); ctx.fillStyle='#0c0018'; ctx.fill();
+      for (let a=0;a<3;a++) {
+        const ang=(a/3)*Math.PI*2;
+        ctx.beginPath();
+        ctx.moveTo(rx+Math.cos(ang)*rr*0.44,ry+Math.sin(ang)*rr*0.44);
+        ctx.lineTo(rx+Math.cos(ang)*rr*0.88,ry+Math.sin(ang)*rr*0.88);
+        ctx.strokeStyle='#0c0018'; ctx.lineWidth=1.5; ctx.stroke();
+      }
+    });
+  });
+}
+
+function drawHeadphones(cx, cy, sz) {
+  const ar=sz*0.22, cr=sz*0.16, base=cy+ar*0.18;
+  neonGlow(P.cyan, 14, () => {
+    ctx.beginPath(); ctx.arc(cx,base,ar,Math.PI,0,true);
+    ctx.strokeStyle='#44446a'; ctx.lineWidth=9; ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx,base,ar,Math.PI,0,true);
+    ctx.strokeStyle='#aaaacc'; ctx.lineWidth=4; ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx,base,ar,Math.PI*1.05,Math.PI*0.5,true);
+    ctx.strokeStyle='rgba(255,255,255,0.20)'; ctx.lineWidth=2; ctx.stroke();
+    [[-ar,0],[ar,0]].forEach(([ox]) => {
+      const ex=cx+ox, ey=base;
+      neonGlow(P.cyan, 12, () => {
+        const cg=ctx.createRadialGradient(ex,ey,0,ex,ey,cr);
+        cg.addColorStop(0,'#00ddee'); cg.addColorStop(1,'#006688');
+        ctx.beginPath(); ctx.arc(ex,ey,cr,0,Math.PI*2);
+        ctx.fillStyle=cg; ctx.fill();
+        ctx.strokeStyle=P.cyan; ctx.lineWidth=1; ctx.stroke();
+      });
+      ctx.beginPath(); ctx.arc(ex,ey,cr*0.55,0,Math.PI*2); ctx.fillStyle='#003344'; ctx.fill();
+      ctx.beginPath(); ctx.arc(ex-cr*0.28,ey-cr*0.28,cr*0.14,0,Math.PI*2);
+      ctx.fillStyle='rgba(255,255,255,0.30)'; ctx.fill();
+    });
+  });
+}
+
+function drawBeer(cx, cy, sz) {
+  const tw=sz*0.60, bw=sz*0.42, h=sz*0.78, y0=cy-h/2, y1=cy+h/2, foamH=h*0.14;
+  neonGlow(P.yellow, 14, () => {
+    ctx.beginPath();
+    ctx.moveTo(cx-tw/2, y0+foamH); ctx.lineTo(cx-bw/2, y1);
+    ctx.lineTo(cx+bw/2, y1); ctx.lineTo(cx+tw/2, y0+foamH); ctx.closePath();
+    const bg2=ctx.createLinearGradient(cx-tw/2,0,cx+tw/2,0);
+    bg2.addColorStop(0,'#996600'); bg2.addColorStop(0.35,P.yellow); bg2.addColorStop(1,'#996600');
+    ctx.fillStyle=bg2; ctx.fill();
+    ctx.strokeStyle='rgba(255,255,200,0.20)'; ctx.lineWidth=1.5;
+    [-tw*0.12,tw*0.04,tw*0.18].forEach(ox=>{
+      ctx.beginPath(); ctx.moveTo(cx+ox,y1-8); ctx.lineTo(cx+ox,y0+foamH+8); ctx.stroke();
+    });
+    ctx.beginPath(); ctx.moveTo(cx-tw/2+5,y0+foamH); ctx.lineTo(cx-bw/2+4,y1-5);
+    ctx.strokeStyle='rgba(255,255,255,0.28)'; ctx.lineWidth=3; ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx-tw/2,y0+foamH); ctx.lineTo(cx-tw/2,y0+4);
+    const segs=6, sw2=tw/segs;
+    for (let i=0;i<=segs;i++) ctx.arc(cx-tw/2+i*sw2,y0+4,sw2*0.48,Math.PI,0);
+    ctx.lineTo(cx+tw/2,y0+foamH); ctx.closePath();
+    ctx.fillStyle='#f5f0ea'; ctx.fill();
+    neonGlow(P.yellow, 5, () => {
+      ctx.strokeStyle=P.yellow+'66'; ctx.lineWidth=0.8;
+      ctx.beginPath(); ctx.moveTo(cx-tw/2,y0+foamH); ctx.lineTo(cx+tw/2,y0+foamH); ctx.stroke();
+    });
+    ctx.beginPath();
+    ctx.moveTo(cx-tw/2,y0+foamH); ctx.lineTo(cx-bw/2,y1);
+    ctx.moveTo(cx+tw/2,y0+foamH); ctx.lineTo(cx+bw/2,y1);
+    ctx.moveTo(cx-bw/2,y1); ctx.lineTo(cx+bw/2,y1);
+    ctx.strokeStyle='rgba(255,255,255,0.22)'; ctx.lineWidth=1.5; ctx.stroke();
+  });
+}
+
+const DRAWERS = [drawRecord,drawFire,drawAmp,drawStrat,drawLesPaul,drawJet,drawCassette,drawHeadphones,drawBeer];
+
+function drawTile(cx, cy, sz, idx, hot) {
+  tileBg(cx, cy, sz, GLOWS[idx], hot);
+  DRAWERS[idx](cx, cy, sz);
+}
+
+// ─── Hover state ─────────────────────────────────────────────────────────────
+let hoveredTile = -1;
+const tileRects = [];
+
+// ─── Render ───────────────────────────────────────────────────────────────────
+function render() {
+  ctx.clearRect(0, 0, W, H);
+  drawBg();
+  tileRects.length = 0;
+
+  // ── Section 1: tiles ──────────────────────────────────────────────────
+  sectionHeader(0, `ALL 9 TILES  ·  48×48px in-game  ·  OUTRUN / SYNTHWAVE  ·  circles with CRT scanlines`);
+
+  for (let i = 0; i < 9; i++) {
+    const col = i%3, row = Math.floor(i/3);
+    const cx = col*CELL_W + CELL_W/2;
+    const cy = GRID_Y + row*CELL_H + TILE_SZ/2 + PAD/2;
+    const hot = hoveredTile === i;
+    drawTile(cx, cy, TILE_SZ, i, hot);
+    ctx.save();
+    if (hot) { ctx.shadowColor=GLOWS[i]; ctx.shadowBlur=10; }
+    ctx.fillStyle = hot ? '#fff' : GLOWS[i];
+    ctx.font = `${hot?'bold ':''}9px "Courier New"`;
+    ctx.textAlign='center'; ctx.textBaseline='top';
+    ctx.fillText(NAMES[i].toUpperCase(), cx, cy+TILE_SZ/2+7);
+    ctx.restore();
+    tileRects.push({x:cx-TILE_SZ/2, y:cy-TILE_SZ/2, w:TILE_SZ, h:TILE_SZ, idx:i});
+  }
+
+  // ── Section 2: game layout preview ────────────────────────────────────
+  const S2Y = GRID_Y + 3*CELL_H + PAD;
+  sectionHeader(S2Y, 'GAME LAYOUT PREVIEW  ·  4×4 board');
+  const boardOffY = S2Y + SEC_H + PAD;
+  const sample = [[2,0,4,1],[0,3,1,2],[4,1,0,3],[1,2,3,0]];
+  const boardX = (W - BOARD_PX)/2 - 100;
+
+  ctx.save();
+  ctx.shadowColor=P.hotPink; ctx.shadowBlur=16;
+  ctx.fillStyle='rgba(8,0,16,0.85)';
+  ctx.beginPath(); ctx.roundRect(boardX-10, boardOffY-10, BOARD_PX+20, BOARD_PX+20, 10); ctx.fill();
+  ctx.strokeStyle=P.hotPink+'44'; ctx.lineWidth=1; ctx.stroke();
+  ctx.restore();
+
+  for (let r=0; r<BCOLS; r++) for (let c=0; c<BCOLS; c++) {
+    const t=sample[r][c];
+    drawTile(boardX+BG+c*(BT+BG)+BT/2, boardOffY+BG+r*(BT+BG)+BT/2, BT, t, false);
+  }
+
+  // HUD
+  const hudX=boardX+BOARD_PX+40, hudY=boardOffY;
+  const tcx=hudX+52, tcy=hudY+55, tr=44;
+  ctx.fillStyle=P.hotPink+'88'; ctx.font='8px "Courier New"';
+  ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillText('TIMER', tcx, tcy-tr-5);
+  ctx.beginPath(); ctx.arc(tcx,tcy,tr,0,Math.PI*2); ctx.fillStyle='rgba(8,0,16,0.9)'; ctx.fill();
+  ctx.strokeStyle='#33005a'; ctx.lineWidth=2; ctx.stroke();
+  ctx.beginPath(); ctx.arc(tcx,tcy,tr-5,0,Math.PI*2); ctx.strokeStyle='#22003a'; ctx.lineWidth=6; ctx.stroke();
+  ctx.save(); ctx.shadowColor=P.hotPink; ctx.shadowBlur=14;
+  ctx.beginPath(); ctx.arc(tcx,tcy,tr-5,-Math.PI/2,-Math.PI/2+Math.PI*2*0.60);
+  ctx.strokeStyle=P.hotPink; ctx.lineWidth=6; ctx.lineCap='round'; ctx.stroke(); ctx.restore();
+  ctx.fillStyle='#fff'; ctx.font='bold 16px "Courier New"';
+  ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('3.0s', tcx, tcy);
+
+  const scx=hudX+110, scy=hudY+8;
+  ctx.fillStyle=P.hotPink+'88'; ctx.font='8px "Courier New"';
+  ctx.textAlign='left'; ctx.textBaseline='top'; ctx.fillText('SCORE', scx, scy);
+  ctx.save(); ctx.shadowColor=P.yellow; ctx.shadowBlur=14;
+  ctx.fillStyle=P.yellow; ctx.font='bold 32px "Courier New"'; ctx.textBaseline='top';
+  ctx.fillText('1240', scx, scy+14); ctx.restore();
+  ctx.save(); ctx.shadowColor=P.hotPink; ctx.shadowBlur=8;
+  ctx.fillStyle=P.hotPink; ctx.font='bold 11px "Courier New"'; ctx.textBaseline='top';
+  ctx.fillText('✦ COMBO ×2', scx, scy+56); ctx.restore();
+  ctx.fillStyle=P.purple; ctx.font='9px "Courier New"';
+  ctx.fillText('BOARD  4×4', scx, scy+78);
+  ctx.fillText('TYPES  3 / 9', scx, scy+92);
+  ctx.fillText('LINES  2 / 4', scx, scy+106);
+
+  // ── Section 3: palette ────────────────────────────────────────────────
+  sectionHeader(PAL_Y, 'COLOUR PALETTE  ·  OUTRUN');
+  const swatches=[
+    {c:'#0a0010',l:'SKY DEEP'},{c:'#2d0050',l:'SKY MID'},{c:'#8b0060',l:'HORIZON'},
+    {c:P.hotPink,l:'HOT PINK'},{c:P.magenta,l:'MAGENTA'},{c:P.cyan,l:'CYAN'},
+    {c:P.orange,l:'ORANGE'},{c:P.yellow,l:'YELLOW'},{c:P.purple,l:'PURPLE'},
+  ];
+  const sw=72, sh=32, sg=8, swTot=swatches.length*(sw+sg)-sg;
+  const swX0=(W-swTot)/2, swY0=PAL_Y+SEC_H+PAD;
+  swatches.forEach((s,i) => {
+    const x=swX0+i*(sw+sg);
+    ctx.save();
+    if (s.c!=='#0a0010') { ctx.shadowColor=s.c; ctx.shadowBlur=8; }
+    ctx.fillStyle=s.c; ctx.beginPath(); ctx.roundRect(x,swY0,sw,sh,4); ctx.fill();
+    ctx.restore();
+    ctx.strokeStyle='rgba(255,255,255,0.12)'; ctx.lineWidth=0.5;
+    ctx.beginPath(); ctx.roundRect(x,swY0,sw,sh,4); ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,0.55)'; ctx.font='7px "Courier New"';
+    ctx.textAlign='center'; ctx.textBaseline='top';
+    ctx.fillText(s.l, x+sw/2, swY0+sh+4);
+  });
+}
+
+C.addEventListener('mousemove', e => {
+  const r=C.getBoundingClientRect();
+  const mx=(e.clientX-r.left)*(W/r.width), my=(e.clientY-r.top)*(H/r.height);
+  const hit=tileRects.findIndex(r=>mx>=r.x&&mx<=r.x+r.w&&my>=r.y&&my<=r.y+r.h);
+  if (hit!==hoveredTile) { hoveredTile=hit; render(); }
+});
+C.addEventListener('mouseleave', () => { if (hoveredTile!==-1) { hoveredTile=-1; render(); } });
+
+render();
+</script>
+</body>
+</html>
