@@ -116,8 +116,8 @@ export class GameScreen extends BaseScreen {
       this.state.timeRemaining = 0;
       this.state.phase = 'GAME_OVER';
       audioSystem.playGameOver();
-      EventBus.emit(EV_GAME_OVER, this.state.score);
       GameContext.screens.replace(GameOverScreen);
+      EventBus.emit(EV_GAME_OVER, this.state.score);
       return;
     }
 
