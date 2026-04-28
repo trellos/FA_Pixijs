@@ -32,6 +32,7 @@ export class GameScreen extends BaseScreen {
   private scoreView!: ScoreView;
   private inputArea!: Container;
   private settling = false;
+  private lastTickSecond = -1;
 
   constructor(app: Application) {
     super(app);
@@ -123,6 +124,15 @@ export class GameScreen extends BaseScreen {
 
     this.timer.setTime(this.state.timeRemaining);
     EventBus.emit(EV_TIMER_CHANGED, this.state.timeRemaining);
+
+    // Tick sound in final 10 seconds — once per whole second
+    if (this.state.timeRemaining <= 10) {
+      const s = Math.ceil(this.state.timeRemaining);
+      if (s !== this.lastTickSecond) {
+        this.lastTickSecond = s;
+        audioSystem.playTick(1 - this.state.timeRemaining / 10);
+      }
+    }
   }
 
   // ── Swap handling ─────────────────────────────────────────────────────────────
@@ -175,8 +185,9 @@ export class GameScreen extends BaseScreen {
       this.state.linesMatchedSinceExpand += result.lines.length;
       this.state.timeRemaining = Math.min(this.state.timeRemaining + result.lines.length * 2, 99);
       this.scoreView.setScore(this.state.score, this.state.chainDepth);
-      if (this.state.chainDepth > 0) audioSystem.playCombo();
-      else audioSystem.playMatch();
+      const maxLen = Math.max(...result.lines.map(l => l.tiles.length));
+      if (this.state.chainDepth > 0) audioSystem.playCombo(maxLen);
+      else audioSystem.playMatch(maxLen);
 
       // Particle burst at each matched tile using that tile's glow colour
       for (const line of result.lines) {

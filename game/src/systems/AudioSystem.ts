@@ -53,17 +53,56 @@ class AudioSystem {
     this.tone(110, 0.12, 'sawtooth', 0.45, 0.1);
   }
 
-  playMatch(): void {
-    this.tone(523, 0.14, 'square', 0.35);       // C5
-    this.tone(659, 0.14, 'square', 0.35, 0.08); // E5
-    this.tone(784, 0.18, 'square', 0.35, 0.16); // G5
+  /** urgency 0–1: ramps from soft blip to sharp high tick as timer hits 0 */
+  playTick(urgency: number): void {
+    if (urgency > 0.7) {
+      this.tone(1200 + urgency * 400, 0.05, 'square', 0.35 + urgency * 0.2);
+    } else {
+      this.tone(880, 0.05, 'sine', 0.25);
+    }
   }
 
-  playCombo(): void {
-    this.tone(784,  0.10, 'square', 0.5);
-    this.tone(988,  0.10, 'square', 0.5, 0.06);
-    this.tone(1175, 0.14, 'square', 0.5, 0.12);
-    this.tone(1568, 0.18, 'square', 0.5, 0.18);
+  /** maxLen = longest matched line length in this settlement */
+  playMatch(maxLen: number): void {
+    if (maxLen >= 5) {
+      // Full chord — all notes simultaneously + shimmer
+      this.tone(523,  0.22, 'square', 0.4);
+      this.tone(659,  0.22, 'square', 0.4);
+      this.tone(784,  0.22, 'square', 0.4);
+      this.tone(988,  0.22, 'square', 0.35);
+      this.tone(1047, 0.28, 'square', 0.3, 0.2); // shimmer
+    } else if (maxLen === 4) {
+      this.tone(523, 0.14, 'square', 0.35);
+      this.tone(659, 0.14, 'square', 0.35, 0.07);
+      this.tone(784, 0.14, 'square', 0.35, 0.14);
+      this.tone(988, 0.20, 'square', 0.35, 0.21);
+    } else {
+      this.tone(523, 0.14, 'square', 0.35);       // C5
+      this.tone(659, 0.14, 'square', 0.35, 0.08); // E5
+      this.tone(784, 0.18, 'square', 0.35, 0.16); // G5
+    }
+  }
+
+  /** Combo version — pitched up a fifth, bass note on 5+ */
+  playCombo(maxLen: number): void {
+    if (maxLen >= 5) {
+      this.tone(131,  0.3,  'sawtooth', 0.25);     // C3 bass
+      this.tone(1175, 0.12, 'square', 0.5);
+      this.tone(1319, 0.12, 'square', 0.5);
+      this.tone(1568, 0.14, 'square', 0.5);
+      this.tone(1760, 0.20, 'square', 0.45);
+      this.tone(2093, 0.24, 'square', 0.4, 0.18);
+    } else if (maxLen === 4) {
+      this.tone(784,  0.10, 'square', 0.5);
+      this.tone(988,  0.10, 'square', 0.5, 0.06);
+      this.tone(1175, 0.12, 'square', 0.5, 0.12);
+      this.tone(1568, 0.18, 'square', 0.5, 0.18);
+    } else {
+      this.tone(784,  0.10, 'square', 0.5);
+      this.tone(988,  0.10, 'square', 0.5, 0.06);
+      this.tone(1175, 0.14, 'square', 0.5, 0.12);
+      this.tone(1568, 0.18, 'square', 0.5, 0.18);
+    }
   }
 
   playExpand(): void {

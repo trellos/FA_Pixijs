@@ -1,4 +1,4 @@
-import { Container, Application } from 'pixi.js';
+import { Container, Application, Graphics } from 'pixi.js';
 import type { GridPos, MatchResult } from '../utils/Types';
 import type { BoardState } from './BoardState';
 import { TileView } from './TileView';
@@ -7,6 +7,7 @@ import { easeOutBounce, easeInQuad, easeOutBack } from '../animations/Easing';
 
 const TILE_SIZE = 48;
 const GAP = 6;
+const STRIDE = TILE_SIZE + GAP;
 
 export class BoardView extends Container {
   private tiles: TileView[][] = []; // tiles[row][col]
@@ -51,16 +52,16 @@ export class BoardView extends Container {
 
   // ── Coordinate helpers ───────────────────────────────────────────────────────
 
-  private tileX(col: number): number { return col * (TILE_SIZE + GAP) + TILE_SIZE / 2; }
-  private tileY(row: number): number { return row * (TILE_SIZE + GAP) + TILE_SIZE / 2; }
+  private tileX(col: number): number { return col * STRIDE + TILE_SIZE / 2; }
+  private tileY(row: number): number { return row * STRIDE + TILE_SIZE / 2; }
 
-  boardPixelWidth(): number { return this.cols * (TILE_SIZE + GAP) - GAP; }
-  boardPixelHeight(): number { return this.rows * (TILE_SIZE + GAP) - GAP; }
+  boardPixelWidth(): number { return this.cols * STRIDE - GAP; }
+  boardPixelHeight(): number { return this.rows * STRIDE - GAP; }
 
   centerOnScreen(): void {
     const w = this.app.screen.width, h = this.app.screen.height;
     this.x = Math.round((w - this.boardPixelWidth()) / 2);
-    this.y = Math.round((h - this.boardPixelHeight()) / 2 - 30); // slight upward offset for HUD
+    this.y = Math.round((h - this.boardPixelHeight()) / 2 - 30);
   }
 
   tileCenterWorld(pos: GridPos): { x: number; y: number } {
@@ -68,8 +69,8 @@ export class BoardView extends Container {
   }
 
   tileAtPixel(localX: number, localY: number): GridPos | null {
-    const col = Math.floor(localX / (TILE_SIZE + GAP));
-    const row = Math.floor(localY / (TILE_SIZE + GAP));
+    const col = Math.floor(localX / STRIDE);
+    const row = Math.floor(localY / STRIDE);
     if (col >= 0 && col < this.cols && row >= 0 && row < this.rows) return { col, row };
     return null;
   }
@@ -90,15 +91,12 @@ export class BoardView extends Container {
       }}),
     ]);
 
-    // Swap in tiles array
     this.tiles[a.row][a.col] = tvB;
     this.tiles[b.row][b.col] = tvA;
   }
 
   async animateSwapBack(a: GridPos, b: GridPos): Promise<void> {
-    // Positions are already swapped in tiles[][] — swap back visually
     await this.animateSwap(a, b);
-    // Re-swap in array to restore original
     const tmp = this.tiles[a.row][a.col];
     this.tiles[a.row][a.col] = this.tiles[b.row][b.col];
     this.tiles[b.row][b.col] = tmp;
@@ -109,11 +107,55 @@ export class BoardView extends Container {
     for (const line of result.lines) {
       for (const pos of line.tiles) matched.add(`${pos.row},${pos.col}`);
     }
+
     const promises: Promise<void>[] = [];
+
+    // Capsule outline per line
+    for (const line of result.lines) {
+      const cols = line.tiles.map(p => p.col);
+      const rows = line.tiles.map(p => p.row);
+      const minC = Math.min(...cols), maxC = Math.max(...cols);
+      const minR = Math.min(...rows), maxR = Math.max(...rows);
+
+      const cx = (this.tileX(minC) + this.tileX(maxC)) / 2;
+      const cy = (this.tileY(minR) + this.tileY(maxR)) / 2;
+      const hw = (this.tileX(maxC) - this.tileX(minC)) / 2 + TILE_SIZE / 2 + 4;
+      const hh = (this.tileY(maxR) - this.tileY(minR)) / 2 + TILE_SIZE / 2 + 4;
+      const radius = Math.min(hw, hh);
+
+      const gfx = new Graphics();
+      gfx.roundRect(-hw, -hh, hw * 2, hh * 2, radius)
+        .stroke({ color: 0xffffff, width: 3, alpha: 0.9 });
+      gfx.position.set(cx, cy);
+      gfx.alpha = 0;
+      this.addChild(gfx);
+
+      // Expand on the short axis (height for horizontal, width for vertical)
+      if (line.isHorizontal) {
+        gfx.scale.set(1, 0);
+        promises.push(
+          animator.tween({
+            duration: 500, from: 0, to: 1,
+            onUpdate: t => { gfx.scale.set(1, t); gfx.alpha = 0.9 * (1 - t * 0.6); },
+            easing: easeOutBack,
+          }).then(() => gfx.destroy()),
+        );
+      } else {
+        gfx.scale.set(0, 1);
+        promises.push(
+          animator.tween({
+            duration: 500, from: 0, to: 1,
+            onUpdate: t => { gfx.scale.set(t, 1); gfx.alpha = 0.9 * (1 - t * 0.6); },
+            easing: easeOutBack,
+          }).then(() => gfx.destroy()),
+        );
+      }
+    }
+
+    // Tile shrink — runs simultaneously with capsules
     for (const key of matched) {
       const [r, c] = key.split(',').map(Number);
       const tv = this.tiles[r][c];
-      // Flash bright before shrinking
       tv.scale.set(1.2);
       promises.push(animator.tween({
         duration: 280, from: 1.2, to: 0,
@@ -121,6 +163,7 @@ export class BoardView extends Container {
         easing: easeInQuad,
       }));
     }
+
     await Promise.all(promises);
     for (const key of matched) {
       const [r, c] = key.split(',').map(Number);
@@ -132,32 +175,28 @@ export class BoardView extends Container {
     const promises: Promise<void>[] = [];
 
     for (let c = 0; c < this.cols; c++) {
-      // Partition column into surviving (visible) and cleared (hidden) views
       const visible: TileView[] = [];
       const hidden: TileView[] = [];
       for (let r = 0; r < this.rows; r++) {
         (this.tiles[r][c].visible ? visible : hidden).push(this.tiles[r][c]);
       }
 
-      if (hidden.length === 0) continue; // column has no gaps
+      if (hidden.length === 0) continue;
 
-      // Surviving tiles fall to the bottom slots
       visible.forEach((tv, i) => {
         const targetRow = hidden.length + i;
         this.tiles[targetRow][c] = tv;
         const targetY = this.tileY(targetRow);
         if (tv.y !== targetY) {
           const dist = Math.abs(targetY - tv.y);
-          const duration = 180 + dist * 0.8; // longer fall for farther tiles
           promises.push(animator.tween({
-            duration, from: tv.y, to: targetY,
+            duration: 180 + dist * 0.8, from: tv.y, to: targetY,
             onUpdate: y => { tv.y = y; },
             easing: easeOutBounce,
           }));
         }
       });
 
-      // Cleared views park at the top positions, ready to be reused by animateSpawn
       hidden.forEach((tv, i) => {
         this.tiles[i][c] = tv;
         tv.position.set(this.tileX(c), this.tileY(i));
@@ -170,8 +209,6 @@ export class BoardView extends Container {
   async animateSpawn(spawned: GridPos[], state: BoardState): Promise<void> {
     const promises: Promise<void>[] = [];
 
-    // Group spawned tiles by column so each column's tiles stagger
-    // starting above the board — topmost spawn slot is furthest above.
     const byCol = new Map<number, GridPos[]>();
     for (const pos of spawned) {
       if (!byCol.has(pos.col)) byCol.set(pos.col, []);
@@ -179,7 +216,6 @@ export class BoardView extends Container {
     }
 
     for (const [, colPoses] of byCol) {
-      // Sort top-to-bottom so col slot 0 gets the highest start position
       colPoses.sort((a, b) => a.row - b.row);
       colPoses.forEach((pos, slotIdx) => {
         const tv = this.tiles[pos.row][pos.col];
@@ -188,13 +224,11 @@ export class BoardView extends Container {
         tv.alpha = 1;
         tv.scale.set(1);
         const targetY = this.tileY(pos.row);
-        // Start above the board; stagger by slot so they don't all overlap
-        const startY = this.tileY(0) - (colPoses.length - slotIdx) * (TILE_SIZE + GAP);
+        const startY = this.tileY(0) - (colPoses.length - slotIdx) * STRIDE;
         tv.position.set(this.tileX(pos.col), startY);
         const dist = targetY - startY;
-        const duration = 220 + dist * 0.6;
         promises.push(animator.tween({
-          duration, from: startY, to: targetY,
+          duration: 220 + dist * 0.6, from: startY, to: targetY,
           onUpdate: y => { tv.y = y; },
           easing: easeOutBounce,
         }));
@@ -208,38 +242,66 @@ export class BoardView extends Container {
     this.cols = state.cols;
     this.rows = state.rows;
 
-    // Add new tile views for expanded cells
+    // Create TileViews for all new cells, placed at their target positions
     for (let r = 0; r < state.rows; r++) {
       if (!this.tiles[r]) this.tiles[r] = [];
       for (let c = 0; c < state.cols; c++) {
         if (!this.tiles[r][c]) {
           const tv = new TileView(state.cells[r][c]);
           tv.position.set(this.tileX(c), this.tileY(r));
-          tv.alpha = 0; tv.scale.set(0);
+          tv.alpha = 1;
+          tv.scale.set(1);
           this.addChild(tv);
           this.tiles[r][c] = tv;
         }
       }
     }
 
-    // Animate board to new centered position + pop in new tiles
     this.centerOnScreen();
 
-    const newTiles: TileView[] = [];
-    for (let r = 0; r < state.rows; r++) {
-      for (let c = 0; c < state.cols; c++) {
-        if (r >= oldRows || c >= oldCols) newTiles.push(this.tiles[r][c]);
-      }
+    const promises: Promise<void>[] = [];
+
+    // New column (c = oldCols): top half slides from above, bottom half from below
+    const newColMid = Math.floor((oldRows - 1) / 2);
+    for (let r = 0; r < oldRows; r++) {
+      const tv = this.tiles[r][oldCols];
+      const targetY = this.tileY(r);
+      const fromAbove = r <= newColMid;
+      const startY = fromAbove
+        ? this.tileY(0) - (newColMid - r + 1) * STRIDE * 2
+        : this.tileY(oldRows - 1) + (r - newColMid) * STRIDE * 2;
+      tv.y = startY;
+      const delay = Math.abs(r - newColMid) * 20;
+      promises.push(new Promise<void>(resolve =>
+        setTimeout(() =>
+          animator.tween({ duration: 350, from: startY, to: targetY,
+            onUpdate: y => { tv.y = y; }, easing: easeOutBounce,
+          }).then(resolve)
+        , delay)
+      ));
     }
 
-    await Promise.all(newTiles.map((tv, i) =>
-      new Promise<void>(resolve => setTimeout(() =>
-        animator.tween({ duration: 250, from: 0, to: 1,
-          onUpdate: s => { tv.scale.set(s); tv.alpha = s; },
-          easing: easeOutBack,
-        }).then(resolve)
-      , i * 20))
-    ));
+    // New row (r = oldRows): left half slides from left, right half from right
+    const newRowMid = Math.floor((state.cols - 1) / 2);
+    for (let c = 0; c < state.cols; c++) {
+      const tv = this.tiles[oldRows][c];
+      const targetX = this.tileX(c);
+      const fromLeft = c <= newRowMid;
+      const startX = fromLeft
+        ? this.tileX(0) - (newRowMid - c + 1) * STRIDE * 2
+        : this.tileX(state.cols - 1) + (c - newRowMid) * STRIDE * 2;
+      tv.x = startX;
+      const delay = Math.abs(c - newRowMid) * 20;
+      promises.push(new Promise<void>(resolve =>
+        setTimeout(() =>
+          animator.tween({ duration: 350, from: startX, to: targetX,
+            onUpdate: x => { tv.x = x; }, easing: easeOutBounce,
+          }).then(resolve)
+        , delay)
+      ));
+    }
+
+    await Promise.all(promises);
   }
 
   shakeInvalidSwap(a: GridPos, b: GridPos): void {
