@@ -301,6 +301,8 @@ function drawAmp(cx, cy, sz) {
 // ── STRATOCASTER — pixel-art double-cutaway silhouette ───────────────────────
 // 0=empty  1=body/neck(cyan)  2=pickguard(light)  3=pickup(dark)
 // Portrait: headstock top → body bottom. 7×14 grid → px=5 at sz=84 → 35×70px
+// Redesigned 2026-04-28: portrait orientation (was body-only 12×16), Fender asymmetric
+// headstock, double-cutaway at row 6, three single-coil pickups rows 8/10/12.
 function drawStrat(cx, cy, sz) {
   const G = [
     [1,1,0,0,0,0,0],  // row  0: headstock tip — bass side (Fender 6-in-line asymmetric)
@@ -326,6 +328,8 @@ function drawStrat(cx, cy, sz) {
 // ── LES PAUL — pixel-art single-cutaway silhouette ───────────────────────────
 // 0=empty  1=body/neck(magenta)  3=humbucker(dark)
 // Portrait: headstock top → body bottom. 7×14 grid → px=5 at sz=84 → 35×70px
+// Redesigned 2026-04-28: portrait orientation (was body-only 12×16), Gibson symmetric
+// headstock, single-cutaway at row 6 (bass shoulder only), two 2-row humbuckers.
 function drawLesPaul(cx, cy, sz) {
   const G = [
     [0,1,1,1,1,1,0],  // row  0: Gibson headstock — symmetric 5 wide (3+3 tuners)
@@ -425,6 +429,8 @@ function drawCassette(cx, cy, sz) {
   });
 }
 
+// Fixed 2026-04-28: ar sz*0.34→sz*0.22, cr sz*0.21→sz*0.16 so cups stay within
+// the sz*0.46 clip radius (was sz*0.55 = 46.2px > 38.6px clip — cups were clipped).
 function drawHeadphones(cx, cy, sz) {
   const ar=sz*0.22, cr=sz*0.16, base=cy+ar*0.18;
   neonGlow(P.cyan, 14, () => {
