@@ -21,6 +21,7 @@ import {
 import { GameOverScreen } from './GameOverScreen';
 import { audioSystem } from '../systems/AudioSystem';
 import { TILE_TYPES } from '../board/TileType';
+import { RainbowSweepFrame } from '../animations/RainbowSweepFrame';
 
 const EXPAND_EVERY = 4; // lines before board grows
 
@@ -31,6 +32,7 @@ export class GameScreen extends BaseScreen {
   private timer!: TimerView;
   private scoreView!: ScoreView;
   private inputArea!: Container;
+  private rainbowFx!: RainbowSweepFrame;
   private settling = false;
   private lastTickSecond = -1;
 
@@ -99,6 +101,11 @@ export class GameScreen extends BaseScreen {
     this.scoreView.position.set(W - 80, 36);
     this.addChild(this.scoreView);
 
+    // Rainbow board-expand fanfare overlay — sits above the board so it
+    // composites over everything when an expand happens.
+    this.rainbowFx = new RainbowSweepFrame(W, H);
+    this.addChild(this.rainbowFx);
+
     // Input
     this.input = new InputSystem(this.inputArea, this.boardView);
     this.input.enable();
@@ -111,6 +118,10 @@ export class GameScreen extends BaseScreen {
   // ── Game loop ─────────────────────────────────────────────────────────────────
 
   override update(deltaMS: number): void {
+    // Rainbow expand FX advances every frame regardless of game phase so it
+    // continues to flow during the ANIMATING_EXPAND phase.
+    this.rainbowFx.update(deltaMS);
+
     if (this.state.phase !== 'IDLE') return;
 
     this.state.timeRemaining -= deltaMS / 1000;
@@ -226,6 +237,17 @@ export class GameScreen extends BaseScreen {
         const by = this.boardView.y + this.boardView.boardPixelHeight() / 2;
         GameContext.particles.emit(bx, by, 0x9b59ff, 60, 220, 130);
         EventBus.emit(EV_BOARD_EXPANDED);
+
+        // Rainbow sweep frame composites over the screen during expand.
+        // Magnitude scales 0 → 1 across the run of expansions: the first
+        // expand (cols=4) is small/quick/duotone, the final one (cols=9 → 10)
+        // is huge/long/full-rainbow.
+        const FIRST_COLS = 4, LAST_COLS = 9; // pre-expand cols values
+        const mag = Math.max(0, Math.min(1,
+          (this.state.cols - FIRST_COLS) / (LAST_COLS - FIRST_COLS)));
+        // Fire-and-forget — the board grow animation continues underneath.
+        void this.rainbowFx.play({ centerX: bx, centerY: by, magnitude: mag });
+
         expandBoard(this.state);
         await this.boardView.animateExpand(this.state);
       }

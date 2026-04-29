@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Expand FX — C · Prism Shock</title>
+<style>
+  body { margin: 0; background: #05000a; color: #e0c0ff; font-family: 'Courier New', monospace; }
+  .wrap { max-width: 900px; margin: 24px auto; padding: 0 16px; }
+  h1 { color: #ff2d9b; letter-spacing: 4px; margin: 0 0 4px; font-size: 18px; }
+  p  { color: #aaaacc; font-size: 12px; line-height: 1.6; max-width: 60ch; }
+  canvas { display: block; background: linear-gradient(180deg,#0a0020,#4a1a6a 50%,#ff2d9b 85%,#ff7c35); border: 1px solid #ff2d9b55; cursor: pointer; width: 100%; height: auto; }
+  .lbl { color: #ffd700; font-size: 11px; letter-spacing: 3px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>EXPAND FX · C — PRISM SHOCK</h1>
+  <p>A prismatic shockwave erupts from the board centre: rakish triangle outlines
+     radiate outward like ripples, each a different hue. A second slower set of
+     larger triangles spirals as it grows, leaving a faded rainbow trail. Like a
+     3D rotating triangle frame caught mid-spin. Click the canvas to replay.</p>
+  <canvas id="cv" width="900" height="500"></canvas>
+  <div class="lbl">CLICK TO REPLAY</div>
+</div>
+
+<script>
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const W = cv.width, H = cv.height;
+const cx = W / 2, cy = H * 0.55;
+
+let start = performance.now();
+
+function drawBoard() {
+  ctx.save();
+  ctx.translate(cx, H * 0.62);
+  ctx.strokeStyle = '#ff2d9b';
+  ctx.lineWidth = 2;
+  ctx.globalAlpha = 0.6;
+  ctx.strokeRect(-100, -100, 200, 200);
+  ctx.globalAlpha = 0.3;
+  for (let i = 1; i < 6; i++) {
+    ctx.strokeRect(-100 + i*33.3, -100, 0.5, 200);
+    ctx.strokeRect(-100, -100 + i*33.3, 200, 0.5);
+  }
+  ctx.restore();
+}
+
+function drawSun() {
+  ctx.save();
+  const r = 75;
+  const grad = ctx.createLinearGradient(0, cy - r, 0, cy + r);
+  grad.addColorStop(0,   '#ffe24a');
+  grad.addColorStop(0.5, '#ff7c35');
+  grad.addColorStop(1,   '#ff2d9b');
+  ctx.fillStyle = grad;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+// Draw a rakish (sheared) triangle centered at (cx,cy), scaled and rotated.
+function rakishTri(scale, rot, hue, alpha, lineW, blur) {
+  const size = 60 * scale;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(rot);
+  // Shear after rotate so the rake lean is consistent.
+  ctx.transform(1, 0.10, -0.18, 1, 0, 0);
+  ctx.beginPath();
+  ctx.moveTo(0, -size);
+  ctx.lineTo(size * 0.95, size * 0.55);
+  ctx.lineTo(-size * 0.95, size * 0.55);
+  ctx.closePath();
+  ctx.strokeStyle = `hsl(${hue} 100% 60%)`;
+  ctx.shadowColor = `hsl(${hue} 100% 60%)`;
+  ctx.shadowBlur = blur;
+  ctx.lineWidth = lineW;
+  ctx.globalAlpha = alpha;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function frame(now) {
+  const t = (now - start) / 1000;
+  ctx.clearRect(0, 0, W, H);
+
+  ctx.fillStyle = '#0a0020'; ctx.fillRect(0, 0, W, cy);
+  ctx.fillStyle = '#10001a'; ctx.fillRect(0, cy, W, H - cy);
+  drawSun();
+  drawBoard();
+
+  // Pass 1 — fast prismatic shockwave (concentric rings).
+  // 8 triangles spawned at staggered times, all radiate outward.
+  const shockN = 9;
+  for (let i = 0; i < shockN; i++) {
+    const launchT = i * 0.06;
+    const age = t - launchT;
+    if (age < 0 || age > 1.0) continue;
+    const eased = 1 - Math.pow(1 - age, 2);
+    const scale = eased * 9;
+    const alpha = (1 - age) * 0.95;
+    const hue = (i / shockN) * 360;
+    rakishTri(scale, 0, hue, alpha, 3, 18);
+  }
+
+  // Pass 2 — slow spiraling rainbow triangles. Two interleaved that rotate
+  // opposite directions while growing, leaving a soft trail (low alpha).
+  const spiralN = 6;
+  for (let i = 0; i < spiralN; i++) {
+    const launchT = 0.15 + i * 0.18;
+    const age = t - launchT;
+    if (age < 0 || age > 2.0) continue;
+    const eased = age / 2;
+    const scale = 1 + eased * 6;
+    const alpha = Math.max(0, 1 - eased) * 0.55;
+    const hue = (i / spiralN) * 360 + 30;
+    const dir = (i % 2 === 0) ? 1 : -1;
+    rakishTri(scale, dir * eased * Math.PI * 1.2, hue, alpha, 4, 22);
+  }
+
+  // Tiny inverted (point-down) triangle bursts on top for prismatic chaos.
+  const flipN = 4;
+  for (let i = 0; i < flipN; i++) {
+    const launchT = 0.05 + i * 0.10;
+    const age = t - launchT;
+    if (age < 0 || age > 0.8) continue;
+    const eased = 1 - Math.pow(1 - age / 0.8, 2);
+    const scale = eased * 6;
+    const alpha = (1 - eased) * 0.8;
+    const hue = (i / flipN) * 360 + 180;
+    rakishTri(scale, Math.PI, hue, alpha, 2, 14);
+  }
+
+  if (t > 2.4) start = now;
+  requestAnimationFrame(frame);
+}
+
+cv.addEventListener('click', () => { start = performance.now(); });
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

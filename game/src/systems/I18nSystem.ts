@@ -2,7 +2,7 @@ type Locale = 'en' | 'ja' | 'es';
 
 const MESSAGES: Record<Locale, Record<string, string>> = {
   en: {
-    'menu.title':    'SYNTHWAVE STAGE',
+    'menu.title':    'SLITHER WAVE',
     'menu.subtitle': 'MATCH 3 · MUSIC · SYNTHWAVE',
     'menu.play':     'PLAY',
     'menu.settings': 'SETTINGS',
@@ -17,7 +17,7 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     'gameover.main_menu':  'MAIN MENU',
   },
   ja: {
-    'menu.title':    'シンセウェーブ・ステージ',
+    'menu.title':    'スリザー・ウェーブ',
     'menu.subtitle': 'マッチ3 · 音楽 · シンセウェーブ',
     'menu.play':     'プレイ',
     'menu.settings': '設定',
@@ -32,7 +32,7 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     'gameover.main_menu':  'メニュー',
   },
   es: {
-    'menu.title':    'SYNTHWAVE STAGE',
+    'menu.title':    'SLITHER WAVE',
     'menu.subtitle': 'COMBINA 3 · MÚSICA · SYNTHWAVE',
     'menu.play':     'JUGAR',
     'menu.settings': 'AJUSTES',

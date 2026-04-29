@@ -2,12 +2,14 @@
 
 type OscType = OscillatorType;
 
-// 80 BPM. The full phrase is 4 chords × 8 eighth-notes = 32 steps.
-const EIGHTH = 60 / 80 / 2; // seconds per eighth note
-const PHRASE = 32;
+// 104 BPM funk groove. Phrase = 4 chords × 16 sixteenth-notes = 64 steps.
+const SIXTEENTH = 60 / 104 / 4; // seconds per sixteenth
+const PHRASE = 64;
+const STEPS_PER_CHORD = 16;
 
-// Am – F – C – G. For each chord we keep the pad voicing, a bass root,
-// and a five-note scale used by the lead.
+// Am – F – C – G. Each chord has a pad voicing, bass root, and a five-note
+// pentatonic scale for both the bubble-picked guitar arpeggios and the
+// staccato Axel-F-style synth lead.
 const CHORDS: { pad: number[]; bass: number; scale: number[] }[] = [
   // Am
   { pad: [220.00, 261.63, 329.63], bass: 110.00, scale: [220.00, 261.63, 293.66, 329.63, 392.00] },
@@ -15,23 +17,50 @@ const CHORDS: { pad: number[]; bass: number; scale: number[] }[] = [
   { pad: [174.61, 220.00, 261.63], bass:  87.31, scale: [174.61, 220.00, 261.63, 293.66, 349.23] },
   // C
   { pad: [196.00, 261.63, 329.63], bass: 130.81, scale: [196.00, 261.63, 293.66, 329.63, 392.00] },
-  // G (with B as the colour tone)
+  // G (with B as colour tone)
   { pad: [196.00, 246.94, 293.66], bass:  98.00, scale: [196.00, 246.94, 293.66, 329.63, 392.00] },
 ];
 
-// One entry per step in the 32-step phrase. null = rest.
-// d = scale-degree index, oct = frequency multiplier (1 = base, 2 = octave up).
+// Funk bass groove (per chord, 16 sixteenths). 1 = root, 8 = octave, '.' = rest.
+// JB-style: heavy on beat 1, octave pop in the middle, syncopated push.
+//                                1   .   .   1   .   .   8   .    1   .   .   1   .   8   .   .
+const BASS_PATTERN: (0 | 1 | 2)[] = [1, 0, 0, 1, 0, 0, 2, 0,   1, 0, 0, 1, 0, 2, 0, 0];
+
+// Chicken-scratch rhythm guitar: muted 16ths, 1 = scratch hit, 0 = silent.
+//                                   x   x   .   x   .   x   x   x    x   .   x   x   .   x   x   .
+const SCRATCH_PATTERN: (0 | 1)[] = [1, 1, 0, 1, 0, 1, 1, 1,   1, 0, 1, 1, 0, 1, 1, 0];
+
+// "Bubble picking" guitar arpeggio: scale-degree per 16th, -1 = rest.
+// A flowing pentatonic run that wraps around the chord scale.
+const PICK_PATTERN: number[] = [
+  0, -1,  2,  4,  -1,  3,  -1,  2,    0, -1,  2,  4,   3, -1,  2, -1,
+];
+
+// Axel-F-flavoured staccato synth lead — sparse, syncopated punches that
+// land on the funk pushes. d = scale-degree, oct multiplier of base scale.
 type Hit = { d: number; oct: number } | null;
 const LEAD_PATTERN: Hit[] = [
-  // Am
-  null, null, { d: 4, oct: 2 }, null,   null, { d: 2, oct: 2 }, null, { d: 0, oct: 2 },
-  // F
-  null, { d: 1, oct: 2 }, null, { d: 3, oct: 2 },   null, null, { d: 2, oct: 2 }, null,
-  // C
-  null, null, { d: 0, oct: 2 }, null,   { d: 4, oct: 2 }, null, { d: 3, oct: 2 }, { d: 2, oct: 2 },
-  // G
-  null, { d: 3, oct: 2 }, null, null,   { d: 2, oct: 2 }, null, { d: 4, oct: 2 }, { d: 3, oct: 2 },
+  // Am bar — riff opens on the &-of-1 push
+  null, null, { d: 0, oct: 2 }, null,    { d: 2, oct: 2 }, null, null, { d: 4, oct: 2 },
+  null, { d: 3, oct: 2 }, null, null,    { d: 2, oct: 2 }, null, { d: 0, oct: 2 }, null,
+  // F bar — drops a step
+  null, null, { d: 1, oct: 2 }, null,    null, { d: 3, oct: 2 }, null, { d: 2, oct: 2 },
+  null, { d: 4, oct: 2 }, null, { d: 3, oct: 2 },   null, null, { d: 1, oct: 2 }, null,
+  // C bar — climbs
+  null, null, { d: 2, oct: 2 }, null,    { d: 4, oct: 2 }, null, { d: 3, oct: 2 }, null,
+  { d: 2, oct: 2 }, null, { d: 0, oct: 3 }, null,   null, { d: 4, oct: 2 }, null, { d: 3, oct: 2 },
+  // G bar — descending tag
+  null, null, { d: 4, oct: 2 }, null,    { d: 3, oct: 2 }, null, { d: 2, oct: 2 }, null,
+  { d: 1, oct: 2 }, null, null, { d: 0, oct: 2 },   null, null, null, null,
 ];
+
+// Drum kit pattern (one bar = one chord = 16 sixteenths). 1 = hit.
+//                              1  .  .  .  .  .  .  .   1  .  .  .  .  .  .  .
+const KICK_PATTERN: (0|1)[] = [1, 0, 0, 0, 0, 0, 1, 0,   1, 0, 0, 0, 0, 0, 0, 1];
+//                              .  .  .  .  1  .  .  .   .  .  .  .  1  .  .  .
+const SNARE_PATTERN: (0|1)[] = [0, 0, 0, 0, 1, 0, 0, 0,  0, 0, 1, 0, 1, 0, 0, 0];
+// Hi-hat: every 16th, with accents on the &
+const HAT_ACCENT: number[] =   [0.4, 0.7, 0.4, 0.7, 0.4, 0.7, 0.4, 0.7, 0.4, 0.7, 0.4, 0.7, 0.4, 0.7, 0.4, 0.7];
 
 class AudioSystem {
   private ctx: AudioContext | null = null;
@@ -43,7 +72,6 @@ class AudioSystem {
   private bgmTimer: number | null = null;
   private bgmStart = 0;     // ac.currentTime of step 0
   private bgmStep = 0;      // next step to schedule
-  private _distCurve: Float32Array | null = null;
 
   private get ac(): AudioContext {
     if (!this.ctx) this.ctx = new AudioContext();
@@ -182,9 +210,9 @@ class AudioSystem {
   private scheduleAhead(): void {
     if (!this.bgmGain) return;
     const ac = this.ac;
-    const lookahead = 0.4;
-    while (this.bgmStart + this.bgmStep * EIGHTH < ac.currentTime + lookahead) {
-      const t = this.bgmStart + this.bgmStep * EIGHTH;
+    const lookahead = 0.3;
+    while (this.bgmStart + this.bgmStep * SIXTEENTH < ac.currentTime + lookahead) {
+      const t = this.bgmStart + this.bgmStep * SIXTEENTH;
       this.scheduleStep(this.bgmStep, t);
       this.bgmStep++;
     }
@@ -192,95 +220,121 @@ class AudioSystem {
 
   private scheduleStep(step: number, t: number): void {
     const phraseStep = step % PHRASE;
-    const stepInChord = phraseStep % 8;
-    const chordIdx = Math.floor(phraseStep / 8);
+    const stepInChord = phraseStep % STEPS_PER_CHORD;
+    const chordIdx = Math.floor(phraseStep / STEPS_PER_CHORD);
     const chord = CHORDS[chordIdx];
 
-    // Pad: one long voicing per chord change.
+    // Pad: thin sustained wash, refreshed each chord.
     if (stepInChord === 0) {
-      this.padChord(chord.pad, t, EIGHTH * 8);
+      this.padChord(chord.pad, t, SIXTEENTH * STEPS_PER_CHORD);
     }
 
-    // Bass: sub thump every quarter note (every 2 eighths).
-    if (stepInChord % 2 === 0) {
-      const isDownbeat = stepInChord === 0 || stepInChord === 4;
-      this.bassNote(chord.bass * (isDownbeat ? 1 : 1), t, EIGHTH * 1.85);
-      // Octave ghost on the back-half of each chord.
-      if (stepInChord === 4) this.bassNote(chord.bass * 2, t, EIGHTH * 1.6);
+    // Slap-style funk bass.
+    const bassHit = BASS_PATTERN[stepInChord];
+    if (bassHit !== 0) {
+      const freq = chord.bass * (bassHit === 2 ? 2 : 1);
+      // Slight swing: push the back-half 16ths a hair late for groove.
+      const swing = (stepInChord % 2 === 1) ? SIXTEENTH * 0.08 : 0;
+      this.slapBass(freq, t + swing, SIXTEENTH * 1.6);
     }
 
-    // Guitar lead: from the static melody.
+    // Chicken-scratch rhythm guitar (muted 16ths around the chord's 3rd/5th).
+    if (SCRATCH_PATTERN[stepInChord]) {
+      const swing = (stepInChord % 2 === 1) ? SIXTEENTH * 0.08 : 0;
+      // Use the chord's mid-range tones to emulate a strummed muted chord.
+      const tone = chord.pad[1] * 2; // octave up for guitar register
+      this.chickenScratch(tone, t + swing, SIXTEENTH * 0.5);
+    }
+
+    // Bubble-picked clean-guitar arpeggio.
+    const pickDeg = PICK_PATTERN[stepInChord];
+    if (pickDeg >= 0) {
+      const freq = chord.scale[pickDeg % chord.scale.length] * 2;
+      this.bubblePick(freq, t, SIXTEENTH * 1.8);
+    }
+
+    // Axel-F-style staccato lead.
     const hit = LEAD_PATTERN[phraseStep];
     if (hit) {
       const freq = chord.scale[hit.d % chord.scale.length] * hit.oct;
-      this.guitarNote(freq, t, EIGHTH * 1.5);
+      this.synthLead(freq, t, SIXTEENTH * 1.4);
     }
 
-    // Hi-hat-ish noise tick on offbeats for movement.
-    if (stepInChord % 2 === 1) {
-      this.noiseTick(t, 0.05);
-    }
+    // Drum kit.
+    if (KICK_PATTERN[stepInChord])  this.kick(t);
+    if (SNARE_PATTERN[stepInChord]) this.snare(t);
+    this.hat(t, HAT_ACCENT[stepInChord]);
   }
 
   private padChord(freqs: number[], t: number, dur: number): void {
     if (!this.bgmGain) return;
     const ac = this.ac;
+    // Thinner pad — the funk rhythm carries the song. Single saw per voice.
     for (const f of freqs) {
-      // Two detuned saws per voice for a thick chorused pad.
-      for (const detune of [-0.006, 0.006]) {
-        const o = ac.createOscillator();
-        o.type = 'sawtooth';
-        o.frequency.value = f * (1 + detune);
+      const o = ac.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = f;
 
-        const lpf = ac.createBiquadFilter();
-        lpf.type = 'lowpass';
-        lpf.frequency.value = 950;
-        lpf.Q.value = 1.5;
+      const lpf = ac.createBiquadFilter();
+      lpf.type = 'lowpass';
+      lpf.frequency.value = 700;
+      lpf.Q.value = 1.0;
 
-        const g = ac.createGain();
-        g.gain.setValueAtTime(0, t);
-        g.gain.linearRampToValueAtTime(0.04, t + 0.5);
-        g.gain.linearRampToValueAtTime(0.04, t + dur - 0.5);
-        g.gain.linearRampToValueAtTime(0, t + dur);
+      const g = ac.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.025, t + 0.6);
+      g.gain.linearRampToValueAtTime(0.025, t + dur - 0.4);
+      g.gain.linearRampToValueAtTime(0, t + dur);
 
-        o.connect(lpf); lpf.connect(g); g.connect(this.bgmGain);
-        o.start(t);
-        o.stop(t + dur + 0.05);
-      }
+      o.connect(lpf); lpf.connect(g); g.connect(this.bgmGain);
+      o.start(t);
+      o.stop(t + dur + 0.05);
     }
   }
 
-  private bassNote(freq: number, t: number, dur: number): void {
+  // Slap-style funk bass: punchy attack, fast filter snap, sub-sine layer.
+  private slapBass(freq: number, t: number, dur: number): void {
     if (!this.bgmGain) return;
     const ac = this.ac;
 
-    const sine = ac.createOscillator();
-    sine.type = 'sine';
-    sine.frequency.value = freq;
+    const sub = ac.createOscillator();
+    sub.type = 'sine';
+    sub.frequency.value = freq;
 
     const saw = ac.createOscillator();
     saw.type = 'sawtooth';
     saw.frequency.value = freq;
 
+    const sq = ac.createOscillator();
+    sq.type = 'square';
+    sq.frequency.value = freq * 2; // octave up adds slap zing
+
     const lpf = ac.createBiquadFilter();
     lpf.type = 'lowpass';
-    lpf.frequency.setValueAtTime(900, t);
-    lpf.frequency.exponentialRampToValueAtTime(180, t + dur);
+    // Pluck-style filter snap: open hard, close fast for the "thump-pop".
+    lpf.frequency.setValueAtTime(2200, t);
+    lpf.frequency.exponentialRampToValueAtTime(220, t + dur * 0.8);
+    lpf.Q.value = 6;
 
-    const g = ac.createGain();
-    g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(0.18, t + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    const subG = ac.createGain();
+    subG.gain.setValueAtTime(0.22, t);
+    subG.gain.exponentialRampToValueAtTime(0.001, t + dur);
 
-    sine.connect(g);
-    saw.connect(lpf); lpf.connect(g);
-    g.connect(this.bgmGain);
+    const harmG = ac.createGain();
+    harmG.gain.setValueAtTime(0, t);
+    harmG.gain.linearRampToValueAtTime(0.18, t + 0.005);
+    harmG.gain.exponentialRampToValueAtTime(0.001, t + dur);
 
-    sine.start(t); saw.start(t);
-    sine.stop(t + dur + 0.05); saw.stop(t + dur + 0.05);
+    sub.connect(subG); subG.connect(this.bgmGain);
+    saw.connect(lpf); sq.connect(lpf);
+    lpf.connect(harmG); harmG.connect(this.bgmGain);
+
+    sub.start(t); saw.start(t); sq.start(t);
+    sub.stop(t + dur + 0.05); saw.stop(t + dur + 0.05); sq.stop(t + dur + 0.05);
   }
 
-  private guitarNote(freq: number, t: number, dur: number): void {
+  // Chicken-scratch rhythm guitar: super-short, high-passed, gritty saw burst.
+  private chickenScratch(freq: number, t: number, dur: number): void {
     if (!this.bgmGain) return;
     const ac = this.ac;
 
@@ -288,56 +342,159 @@ class AudioSystem {
     o.type = 'sawtooth';
     o.frequency.value = freq;
 
+    const hpf = ac.createBiquadFilter();
+    hpf.type = 'highpass';
+    hpf.frequency.value = 1100;
+    hpf.Q.value = 3;
+
     const lpf = ac.createBiquadFilter();
     lpf.type = 'lowpass';
-    lpf.frequency.setValueAtTime(3200, t);
-    lpf.frequency.exponentialRampToValueAtTime(420, t + dur);
-    lpf.Q.value = 6;
-
-    const dist = ac.createWaveShaper();
-    dist.curve = this.distortionCurve as Float32Array<ArrayBuffer>;
-    dist.oversample = '2x';
+    lpf.frequency.value = 4500;
+    lpf.Q.value = 4;
 
     const g = ac.createGain();
     g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(0.12, t + 0.005);
+    g.gain.linearRampToValueAtTime(0.08, t + 0.003);
     g.gain.exponentialRampToValueAtTime(0.001, t + dur);
 
-    o.connect(lpf); lpf.connect(dist); dist.connect(g); g.connect(this.bgmGain);
+    o.connect(hpf); hpf.connect(lpf); lpf.connect(g); g.connect(this.bgmGain);
     o.start(t);
-    o.stop(t + dur + 0.05);
+    o.stop(t + dur + 0.02);
   }
 
-  private noiseTick(t: number, dur: number): void {
+  // Clean "bubble-picked" guitar — triangle through a soft bandpass with
+  // a quick attack and medium decay so notes ring like fingerpicked single notes.
+  private bubblePick(freq: number, t: number, dur: number): void {
     if (!this.bgmGain) return;
     const ac = this.ac;
+
+    const o = ac.createOscillator();
+    o.type = 'triangle';
+    o.frequency.value = freq;
+
+    // Subtle 5th harmonic for body.
+    const o2 = ac.createOscillator();
+    o2.type = 'triangle';
+    o2.frequency.value = freq * 2.005;
+
+    const bpf = ac.createBiquadFilter();
+    bpf.type = 'bandpass';
+    bpf.frequency.value = freq * 1.6;
+    bpf.Q.value = 4;
+
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.10, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+
+    const g2 = ac.createGain();
+    g2.gain.setValueAtTime(0, t);
+    g2.gain.linearRampToValueAtTime(0.04, t + 0.008);
+    g2.gain.exponentialRampToValueAtTime(0.001, t + dur);
+
+    o.connect(bpf); bpf.connect(g); g.connect(this.bgmGain);
+    o2.connect(g2); g2.connect(this.bgmGain);
+
+    o.start(t); o2.start(t);
+    o.stop(t + dur + 0.05); o2.stop(t + dur + 0.05);
+  }
+
+  // Axel-F-style staccato synth lead: bright square + saw, snappy envelope.
+  private synthLead(freq: number, t: number, dur: number): void {
+    if (!this.bgmGain) return;
+    const ac = this.ac;
+
+    const sq = ac.createOscillator();
+    sq.type = 'square';
+    sq.frequency.value = freq;
+
+    const sw = ac.createOscillator();
+    sw.type = 'sawtooth';
+    sw.frequency.value = freq * 1.005; // tiny detune
+
+    const lpf = ac.createBiquadFilter();
+    lpf.type = 'lowpass';
+    lpf.frequency.setValueAtTime(4200, t);
+    lpf.frequency.exponentialRampToValueAtTime(900, t + dur);
+    lpf.Q.value = 5;
+
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.13, t + 0.005);
+    g.gain.linearRampToValueAtTime(0.10, t + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+
+    sq.connect(lpf); sw.connect(lpf); lpf.connect(g); g.connect(this.bgmGain);
+    sq.start(t); sw.start(t);
+    sq.stop(t + dur + 0.05); sw.stop(t + dur + 0.05);
+  }
+
+  // ── Drums ─────────────────────────────────────────────────────────────────
+
+  private kick(t: number): void {
+    if (!this.bgmGain) return;
+    const ac = this.ac;
+    const o = ac.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(140, t);
+    o.frequency.exponentialRampToValueAtTime(45, t + 0.12);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.45, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+    o.connect(g); g.connect(this.bgmGain);
+    o.start(t);
+    o.stop(t + 0.18);
+  }
+
+  private snare(t: number): void {
+    if (!this.bgmGain) return;
+    const ac = this.ac;
+    // Body tone + filtered noise burst.
+    const tone = ac.createOscillator();
+    tone.type = 'triangle';
+    tone.frequency.setValueAtTime(220, t);
+    tone.frequency.exponentialRampToValueAtTime(160, t + 0.08);
+    const tg = ac.createGain();
+    tg.gain.setValueAtTime(0.08, t);
+    tg.gain.exponentialRampToValueAtTime(0.001, t + 0.10);
+    tone.connect(tg); tg.connect(this.bgmGain);
+    tone.start(t); tone.stop(t + 0.12);
+
+    const dur = 0.14;
     const len = Math.ceil(ac.sampleRate * dur);
     const buf = ac.createBuffer(1, len, ac.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
     const src = ac.createBufferSource();
     src.buffer = buf;
     const hpf = ac.createBiquadFilter();
     hpf.type = 'highpass';
-    hpf.frequency.value = 6000;
-    const g = ac.createGain();
-    g.gain.value = 0.05;
-    src.connect(hpf); hpf.connect(g); g.connect(this.bgmGain);
-    src.start(t);
-    src.stop(t + dur + 0.02);
+    hpf.frequency.value = 1500;
+    const ng = ac.createGain();
+    ng.gain.setValueAtTime(0.18, t);
+    ng.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(hpf); hpf.connect(ng); ng.connect(this.bgmGain);
+    src.start(t); src.stop(t + dur + 0.02);
   }
 
-  private get distortionCurve(): Float32Array {
-    if (this._distCurve) return this._distCurve;
-    const n = 1024;
-    const c = new Float32Array(new ArrayBuffer(n * 4));
-    const k = 12;
-    for (let i = 0; i < n; i++) {
-      const x = (i / n) * 2 - 1;
-      c[i] = ((Math.PI + k) * x) / (Math.PI + k * Math.abs(x));
-    }
-    this._distCurve = c;
-    return c;
+  private hat(t: number, vel: number): void {
+    if (!this.bgmGain) return;
+    const ac = this.ac;
+    const dur = 0.04;
+    const len = Math.ceil(ac.sampleRate * dur);
+    const buf = ac.createBuffer(1, len, ac.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = ac.createBufferSource();
+    src.buffer = buf;
+    const hpf = ac.createBiquadFilter();
+    hpf.type = 'highpass';
+    hpf.frequency.value = 7000;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.06 * vel, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(hpf); hpf.connect(g); g.connect(this.bgmGain);
+    src.start(t); src.stop(t + dur + 0.02);
   }
 
   // ── Volume ────────────────────────────────────────────────────────────────

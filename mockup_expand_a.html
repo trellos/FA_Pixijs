@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Expand FX — A · Tunnel Burst</title>
+<style>
+  body { margin: 0; background: #05000a; color: #e0c0ff; font-family: 'Courier New', monospace; }
+  .wrap { max-width: 900px; margin: 24px auto; padding: 0 16px; }
+  h1 { color: #ff2d9b; letter-spacing: 4px; margin: 0 0 4px; font-size: 18px; }
+  p  { color: #aaaacc; font-size: 12px; line-height: 1.6; max-width: 60ch; }
+  canvas { display: block; background: linear-gradient(180deg,#0a0020,#4a1a6a 50%,#ff2d9b 85%,#ff7c35); border: 1px solid #ff2d9b55; cursor: pointer; width: 100%; height: auto; }
+  .lbl { color: #ffd700; font-size: 11px; letter-spacing: 3px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>EXPAND FX · A — TUNNEL BURST</h1>
+  <p>A rainbow stack of nested rakish triangles bursts <em>outward</em> from the
+     horizon vanishing point. Each ring is a different hue, skewed so the tunnel
+     leans diagonally — feels like the board is ripped open and the player is
+     pulled through. Click the canvas to replay.</p>
+  <canvas id="cv" width="900" height="500"></canvas>
+  <div class="lbl">CLICK TO REPLAY</div>
+</div>
+
+<script>
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const W = cv.width, H = cv.height;
+const cx = W / 2, cy = H * 0.55;
+
+const HUES = [0, 30, 60, 120, 180, 220, 280, 320];
+
+let start = performance.now();
+
+function drawBoard() {
+  // Faux board frame so we have something to "expand"
+  ctx.save();
+  ctx.translate(cx, H * 0.78);
+  ctx.strokeStyle = '#ff2d9b';
+  ctx.lineWidth = 2;
+  ctx.globalAlpha = 0.6;
+  ctx.strokeRect(-90, -90, 180, 180);
+  ctx.globalAlpha = 0.3;
+  for (let i = 1; i < 6; i++) {
+    ctx.strokeRect(-90 + i*30, -90, 0.5, 180);
+    ctx.strokeRect(-90, -90 + i*30, 180, 0.5);
+  }
+  ctx.restore();
+}
+
+function drawSun() {
+  ctx.save();
+  const r = 80;
+  const grad = ctx.createLinearGradient(0, cy - r, 0, cy + r);
+  grad.addColorStop(0,   '#ffe24a');
+  grad.addColorStop(0.5, '#ff7c35');
+  grad.addColorStop(1,   '#ff2d9b');
+  ctx.fillStyle = grad;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#0a0020';
+  for (let i = 0; i < 6; i++) {
+    const yy = cy + 4 + i * 12;
+    ctx.fillRect(cx - r, yy, r * 2, Math.max(2, 4 - i*0.5));
+  }
+  ctx.restore();
+}
+
+function drawHorizonGrid() {
+  ctx.save();
+  ctx.strokeStyle = '#ff2d9b';
+  ctx.globalAlpha = 0.5;
+  for (let i = -10; i <= 10; i++) {
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + i * 90, H);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function rakishTriangle(scale, skew, hue, alpha, lineW) {
+  // Equilateral-ish triangle, sheared by `skew`, scaled by `scale`,
+  // pointing up. Center of the triangle at (cx, cy).
+  const size = 80 * scale;
+  // base offsets
+  const pts = [
+    [ 0,        -size ],         // top
+    [  size*0.95, size*0.55 ],   // bottom-right
+    [ -size*0.95, size*0.55 ],   // bottom-left
+  ];
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.transform(1, skew*0.05, skew*0.18, 1, 0, 0); // rakish shear
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  ctx.lineTo(pts[1][0], pts[1][1]);
+  ctx.lineTo(pts[2][0], pts[2][1]);
+  ctx.closePath();
+  ctx.strokeStyle = `hsl(${hue} 100% 60%)`;
+  ctx.shadowColor = `hsl(${hue} 100% 60%)`;
+  ctx.shadowBlur = 14;
+  ctx.lineWidth = lineW;
+  ctx.globalAlpha = alpha;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function frame(now) {
+  const t = (now - start) / 1000;
+  ctx.clearRect(0, 0, W, H);
+
+  // Background
+  ctx.fillStyle = '#0a0020'; ctx.fillRect(0, 0, W, cy);
+  ctx.fillStyle = '#10001a'; ctx.fillRect(0, cy, W, H - cy);
+  drawSun();
+  drawHorizonGrid();
+  drawBoard();
+
+  // Tunnel burst — emit a triangle every 0.12s, each grows outward
+  const period = 1.6; // total effect duration
+  const burst = Math.min(1, t / period);
+  const N = 14;
+  for (let i = 0; i < N; i++) {
+    const launchT = i * 0.10;
+    const age = t - launchT;
+    if (age < 0 || age > 1.5) continue;
+    const scale = age * age * 8 + 0.3;
+    const alpha = Math.max(0, 1 - age / 1.4) * 0.95;
+    const hue = HUES[i % HUES.length];
+    const skew = Math.sin(i * 0.7) * 1.2;
+    rakishTriangle(scale, skew, hue, alpha, 3 - age);
+  }
+
+  // Loop: keep spawning if past period, restart spawn cycle
+  if (t > period * 1.6) start = now - 0.2 * 1000;
+  requestAnimationFrame(frame);
+}
+
+cv.addEventListener('click', () => { start = performance.now(); });
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
