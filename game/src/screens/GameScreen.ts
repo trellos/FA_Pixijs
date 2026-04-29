@@ -72,8 +72,9 @@ export class GameScreen extends BaseScreen {
   private buildUI(): void {
     const { width: W, height: H } = this.app.screen;
 
-    // Dark background
-    const bg = new Graphics().rect(0, 0, W, H).fill({ color: 0x0a0010 });
+    // Translucent dark overlay — keeps tiles legible while letting the
+    // animated synthwave backdrop bleed through.
+    const bg = new Graphics().rect(0, 0, W, H).fill({ color: 0x05000a, alpha: 0.45 });
     this.addChild(bg);
 
     // Board

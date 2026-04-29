@@ -23,7 +23,7 @@ export class GameOverScreen extends BaseScreen {
   private build(score: number): void {
     const { width: W, height: H } = this.app.screen;
 
-    const bg = new Graphics().rect(0, 0, W, H).fill({ color: 0x0a0010 });
+    const bg = new Graphics().rect(0, 0, W, H).fill({ color: 0x05000a, alpha: 0.55 });
     this.addChild(bg);
 
     const title = new Text({ text: i18n.t('gameover.title'), style: {

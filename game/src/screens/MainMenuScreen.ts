@@ -15,8 +15,7 @@ export class MainMenuScreen extends BaseScreen {
     const { width: W, height: H } = this.app.screen;
 
     const bg = new Graphics();
-    bg.rect(0, 0, W, H).fill({ color: 0x0a0010 });
-    bg.rect(0, H * 0.6, W, 2).fill({ color: 0xff2d9b, alpha: 0.7 });
+    bg.rect(0, 0, W, H).fill({ color: 0x05000a, alpha: 0.35 });
     this.addChild(bg);
 
     const title = new Text({ text: i18n.t('menu.title'), style: {
