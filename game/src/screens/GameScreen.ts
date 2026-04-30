@@ -2,38 +2,34 @@ import { Application, Container, Graphics } from 'pixi.js';
 import { BaseScreen } from './BaseScreen';
 import { BoardState, createBoardState } from '../board/BoardState';
 import { BoardView } from '../board/BoardView';
+import { MatchSettler } from '../board/MatchSettler';
 import { InputSystem } from '../systems/InputSystem';
 import { TimerView } from '../hud/TimerView';
 import { ScoreView } from '../hud/ScoreView';
 import { GameContext } from '../GameContext';
 import { EventBus } from '../utils/EventBus';
-import {
-  initBoard, findMatches, isValidSwap, applySwap,
-  clearMatches, applyGravity, spawnTiles, computeScore,
-  ensureSolvable, expandBoard,
-} from '../board/BoardLogic';
+import { initBoard } from '../board/BoardLogic';
 import type { SwapIntent } from '../utils/Types';
-import {
-  EV_SWAP_REQUESTED, EV_SWAP_INVALID, EV_MATCH_FOUND,
-  EV_TILES_FELL, EV_TILES_SPAWNED, EV_BOARD_EXPANDED,
-  EV_TIMER_CHANGED, EV_SCORE_CHANGED, EV_GAME_OVER,
-} from '../utils/Types';
+import { EV_SWAP_REQUESTED, EV_GAME_OVER } from '../utils/Types';
 import { GameOverScreen } from './GameOverScreen';
 import { audioSystem } from '../systems/AudioSystem';
-import { TILE_TYPES } from '../board/TileType';
 import { RainbowSweepFrame } from '../animations/RainbowSweepFrame';
 
-const EXPAND_EVERY = 4; // lines before board grows
-
+/**
+ * Owns the in-game scene: board, HUD, input plumbing, and the round timer.
+ * The match→clear→fall→spawn→expand pipeline lives in `MatchSettler`;
+ * GameScreen is the wiring layer between input events, the settler, and
+ * the timer's tick-down to game over.
+ */
 export class GameScreen extends BaseScreen {
   private state!: BoardState;
   private boardView!: BoardView;
+  private settler!: MatchSettler;
   private input!: InputSystem;
   private timer!: TimerView;
   private scoreView!: ScoreView;
   private inputArea!: Container;
   private rainbowFx!: RainbowSweepFrame;
-  private settling = false;
   private lastTickSecond = -1;
 
   constructor(app: Application) {
@@ -41,32 +37,12 @@ export class GameScreen extends BaseScreen {
     this.state = createBoardState();
     initBoard(this.state);
     this.buildUI();
-    this.registerEvents();
+    this.settler = new MatchSettler(
+      this.state, this.boardView, this.scoreView, this.rainbowFx,
+      (mag, ms) => this.shake(mag, ms),
+    );
+    EventBus.on(EV_SWAP_REQUESTED, this.onSwapRequested);
     this.exposeTestHooks();
-  }
-
-  private exposeTestHooks(): void {
-    if (!import.meta.env.DEV) return;
-    type Win = {
-      __setBoard: (cells: number[][]) => void;
-      __getState: () => { score: number; timeRemaining: number; phase: string; cells: number[][] };
-    };
-    const win = window as unknown as Win;
-    win.__setBoard = (cells: number[][]) => {
-      this.state.cells = cells as BoardState['cells'];
-      this.state.cols = cells[0].length;
-      this.state.rows = cells.length;
-      this.boardView.syncFromState(this.state);
-    };
-    win.__getState = () => ({
-      score: this.state.score,
-      timeRemaining: this.state.timeRemaining,
-      phase: this.state.phase,
-      cells: this.state.cells.map(r => [...r]),
-    });
-    (win as unknown as Record<string, unknown>).__triggerSwap = (fc: number, fr: number, tc: number, tr: number) => {
-      EventBus.emit(EV_SWAP_REQUESTED, { from: { col: fc, row: fr }, to: { col: tc, row: tr } });
-    };
   }
 
   // ── UI build ─────────────────────────────────────────────────────────────────
@@ -111,10 +87,6 @@ export class GameScreen extends BaseScreen {
     this.input.enable();
   }
 
-  private registerEvents(): void {
-    EventBus.on(EV_SWAP_REQUESTED, this.onSwapRequested as (...args: unknown[]) => void);
-  }
-
   // ── Game loop ─────────────────────────────────────────────────────────────────
 
   override update(deltaMS: number): void {
@@ -135,7 +107,6 @@ export class GameScreen extends BaseScreen {
     }
 
     this.timer.setTime(this.state.timeRemaining);
-    EventBus.emit(EV_TIMER_CHANGED, this.state.timeRemaining);
 
     // Tick sound in final 10 seconds — once per whole second
     if (this.state.timeRemaining <= 10) {
@@ -150,120 +121,42 @@ export class GameScreen extends BaseScreen {
   // ── Swap handling ─────────────────────────────────────────────────────────────
 
   private onSwapRequested = async (intent: SwapIntent): Promise<void> => {
-    if (this.state.phase !== 'IDLE' || this.settling) return;
-
-    const { from, to } = intent;
-    if (from.col < 0 || from.row < 0 || to.col < 0 || to.row < 0 ||
-        from.col >= this.state.cols || from.row >= this.state.rows ||
-        to.col >= this.state.cols || to.row >= this.state.rows) return;
-
-    if (!isValidSwap(this.state, intent)) {
-      EventBus.emit(EV_SWAP_INVALID, intent);
-      this.boardView.shakeInvalidSwap(from, to);
-      audioSystem.playInvalid();
-      this.shake(6, 250);
-      return;
-    }
-
-    audioSystem.playSwap();
     this.input.disable();
-    this.state.phase = 'ANIMATING_SWAP';
-    this.state.chainDepth = 0;
-
-    await this.boardView.animateSwap(from, to);
-    applySwap(this.state, intent);
-
-    await this.settleLoop();
+    await this.settler.processSwap(intent);
     this.input.enable();
   };
 
-  // ── Settle loop ───────────────────────────────────────────────────────────────
+  // ── Test hooks ────────────────────────────────────────────────────────────────
 
-  private async settleLoop(): Promise<void> {
-    this.settling = true;
-    let isFirst = true;
-
-    while (true) {
-      const result = findMatches(this.state);
-      if (result.lines.length === 0) break;
-
-      if (!isFirst) this.state.chainDepth++;
-      isFirst = false;
-
-      // Score + timer bonus
-      this.state.phase = 'ANIMATING_MATCH';
-      const delta = computeScore(result);
-      this.state.score += delta.total;
-      this.state.linesMatchedSinceExpand += result.lines.length;
-      this.state.timeRemaining = Math.min(this.state.timeRemaining + result.lines.length * 2, 99);
-      this.scoreView.setScore(this.state.score, this.state.chainDepth);
-      const maxLen = Math.max(...result.lines.map(l => l.tiles.length));
-      if (this.state.chainDepth > 0) audioSystem.playCombo(maxLen);
-      else audioSystem.playMatch(maxLen);
-
-      // Particle burst at each matched tile using that tile's glow colour
-      for (const line of result.lines) {
-        for (const pos of line.tiles) {
-          const typeId = this.state.cells[pos.row][pos.col] as number;
-          const color = TILE_TYPES[typeId]?.glowColor ?? 0xffd700;
-          const w = this.boardView.tileCenterWorld(pos);
-          GameContext.particles.emit(w.x, w.y, color, 6);
-        }
-      }
-
-      EventBus.emit(EV_MATCH_FOUND, result);
-      EventBus.emit(EV_SCORE_CHANGED, this.state.score);
-
-      await this.boardView.animateMatch(result);
-      clearMatches(this.state, result);
-
-      // Gravity + spawn always run before anything else, keeping the board full
-      this.state.phase = 'ANIMATING_FALL';
-      const moved = applyGravity(this.state);
-      EventBus.emit(EV_TILES_FELL, moved);
-      await this.boardView.animateFall(moved, this.state);
-
-      this.state.phase = 'ANIMATING_SPAWN';
-      const spawned = spawnTiles(this.state);
-      EventBus.emit(EV_TILES_SPAWNED, spawned);
-      await this.boardView.animateSpawn(spawned, this.state);
-
-      // Expansion is checked after the board is fully filled
-      if (this.state.linesMatchedSinceExpand >= EXPAND_EVERY && this.state.cols < 10) {
-        this.state.phase = 'ANIMATING_EXPAND';
-        audioSystem.playExpand();
-        // Shower of particles across the whole board
-        const bx = this.boardView.x + this.boardView.boardPixelWidth() / 2;
-        const by = this.boardView.y + this.boardView.boardPixelHeight() / 2;
-        GameContext.particles.emit(bx, by, 0x9b59ff, 60, 220, 130);
-        EventBus.emit(EV_BOARD_EXPANDED);
-
-        // Rainbow sweep frame composites over the screen during expand.
-        // Magnitude scales 0 → 1 across the run of expansions: the first
-        // expand (cols=4) is small/quick/duotone, the final one (cols=9 → 10)
-        // is huge/long/full-rainbow.
-        const FIRST_COLS = 4, LAST_COLS = 9; // pre-expand cols values
-        const mag = Math.max(0, Math.min(1,
-          (this.state.cols - FIRST_COLS) / (LAST_COLS - FIRST_COLS)));
-        // Fire-and-forget — the board grow animation continues underneath.
-        void this.rainbowFx.play({ centerX: bx, centerY: by, magnitude: mag });
-
-        expandBoard(this.state);
-        await this.boardView.animateExpand(this.state);
-      }
-
-      ensureSolvable(this.state);
+  private exposeTestHooks(): void {
+    if (!import.meta.env.DEV) return;
+    interface TestWindow {
+      __setBoard: (cells: number[][]) => void;
+      __getState: () => { score: number; timeRemaining: number; phase: string; cells: number[][] };
+      __triggerSwap: (fc: number, fr: number, tc: number, tr: number) => void;
     }
-
-    this.state.phase = 'IDLE';
-    this.state.chainDepth = 0;
-    this.settling = false;
+    const win = window as unknown as TestWindow;
+    win.__setBoard = (cells: number[][]) => {
+      this.state.cells = cells;
+      this.state.cols = cells[0].length;
+      this.state.rows = cells.length;
+      this.boardView.syncFromState(this.state);
+    };
+    win.__getState = () => ({
+      score: this.state.score,
+      timeRemaining: this.state.timeRemaining,
+      phase: this.state.phase,
+      cells: this.state.cells.map(r => [...r]),
+    });
+    win.__triggerSwap = (fc, fr, tc, tr) => {
+      EventBus.emit(EV_SWAP_REQUESTED, { from: { col: fc, row: fr }, to: { col: tc, row: tr } });
+    };
   }
 
   // ── Cleanup ───────────────────────────────────────────────────────────────────
 
   override onHide(): void {
-    EventBus.off(EV_SWAP_REQUESTED, this.onSwapRequested as (...args: unknown[]) => void);
+    EventBus.off(EV_SWAP_REQUESTED, this.onSwapRequested);
     this.input.destroy();
   }
 }

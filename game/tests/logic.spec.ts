@@ -10,12 +10,13 @@ import {
 } from '../src/board/BoardLogic';
 import { createBoardState } from '../src/board/BoardState';
 import type { TileTypeId } from '../src/utils/Types';
+import { EMPTY_CELL } from '../src/utils/Types';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 type Cells = TileTypeId[][];
-const T = (cells: number[][]): Cells => cells as Cells;
-const E = -1 as unknown as TileTypeId; // empty sentinel used after clearMatches
+const T = (cells: number[][]): Cells => cells;
+const E = EMPTY_CELL; // empty sentinel used after clearMatches
 
 function makeState(cells: Cells) {
   const s = createBoardState();
@@ -152,10 +153,10 @@ test('applyGravity — tiles fall into empty slots', () => {
   ]));
   const moved = applyGravity(s);
   // The tile 0 from (col:0,row:0) should fall to (col:0,row:2)
-  expect(s.cells[2][0]).toBe(0 as TileTypeId);
+  expect(s.cells[2][0]).toBe(0);
   // Rows 0 and 1 in col 0 should now be empty (-1)
-  expect(s.cells[0][0] as unknown as number).toBe(-1);
-  expect(s.cells[1][0] as unknown as number).toBe(-1);
+  expect(s.cells[0][0]).toBe(-1);
+  expect(s.cells[1][0]).toBe(-1);
   expect(moved.some(p => p.col === 0 && p.row === 2)).toBe(true);
 });
 
@@ -166,9 +167,9 @@ test('applyGravity — columns with no gaps are unchanged', () => {
     [2, 0],
   ]));
   applyGravity(s);
-  expect(s.cells[0][1]).toBe(1 as TileTypeId);
-  expect(s.cells[1][1]).toBe(2 as TileTypeId);
-  expect(s.cells[2][1]).toBe(0 as TileTypeId);
+  expect(s.cells[0][1]).toBe(1);
+  expect(s.cells[1][1]).toBe(2);
+  expect(s.cells[2][1]).toBe(0);
 });
 
 // ── spawnTiles ────────────────────────────────────────────────────────────────
@@ -186,8 +187,8 @@ test('spawnTiles — fills every empty slot with a valid tile type', () => {
   // All cells now 0–2 (within unlockedTypes range)
   for (const row of s.cells) {
     for (const v of row) {
-      expect(v as unknown as number).toBeGreaterThanOrEqual(0);
-      expect(v as unknown as number).toBeLessThan(3);
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThan(3);
     }
   }
 });
@@ -236,7 +237,7 @@ test('expandBoard — increases cols and rows by 1', () => {
     [1, 0, 1, 0],
   ]));
   s.unlockedTypes = 4;
-  expandBoard(s);
+  expandBoard(s, 9);
   expect(s.cols).toBe(5);
   expect(s.rows).toBe(5);
   expect(s.cells).toHaveLength(5);
@@ -249,7 +250,7 @@ test('expandBoard — resets linesMatchedSinceExpand', () => {
   ]));
   s.linesMatchedSinceExpand = 7;
   s.unlockedTypes = 3;
-  expandBoard(s);
+  expandBoard(s, 9);
   expect(s.linesMatchedSinceExpand).toBe(0);
 });
 
@@ -259,7 +260,7 @@ test('expandBoard — adds time bonus', () => {
   ]));
   s.timeRemaining = 20;
   s.unlockedTypes = 3;
-  expandBoard(s);
+  expandBoard(s, 9);
   expect(s.timeRemaining).toBeGreaterThan(20);
 });
 
@@ -278,8 +279,8 @@ test('initBoard — fills all cells within unlockedTypes range', () => {
   initBoard(s);
   for (const row of s.cells) {
     for (const v of row) {
-      expect(v as number).toBeGreaterThanOrEqual(0);
-      expect(v as number).toBeLessThan(4);
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThan(4);
     }
   }
 });

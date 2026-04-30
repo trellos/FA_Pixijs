@@ -1,12 +1,17 @@
-// Pure logic — zero PixiJS imports
+// Pure logic — zero PixiJS imports, zero Tile-class imports.
+//
+// This file is the heart of the game and the most-tested code in the repo.
+// It must remain renderable-agnostic (no Pixi) AND tile-class-agnostic
+// (no `Tile` instances): tiles are addressed by id only. Behavior tied to
+// specific tile classes belongs in `Tile` subclasses, dispatched by the
+// orchestrator (MatchSettler), not here.
+
 import type { TileTypeId, GridPos, MatchLine, MatchResult, ScoreDelta, SwapIntent } from '../utils/Types';
+import { EMPTY_CELL } from '../utils/Types';
 import type { BoardState } from './BoardState';
 import { shuffle, randInt } from '../utils/MathUtils';
 
 const MIN_MATCH = 3;
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 
 // ── Initialise ────────────────────────────────────────────────────────────────
 
@@ -22,7 +27,7 @@ export function initBoard(state: BoardState): void {
 }
 
 function randTile(unlockedTypes: number): TileTypeId {
-  return randInt(0, unlockedTypes - 1) as TileTypeId;
+  return randInt(0, unlockedTypes - 1);
 }
 
 // ── Match finding ─────────────────────────────────────────────────────────────
@@ -34,8 +39,8 @@ export function findMatches(state: BoardState): MatchResult {
   for (let r = 0; r < state.rows; r++) {
     let run = 1;
     for (let c = 1; c <= state.cols; c++) {
-      const v  = c < state.cols ? (state.cells[r][c] as number) : -2;
-      const pv = (state.cells[r][c - 1] as number);
+      const v  = c < state.cols ? state.cells[r][c] : -2;
+      const pv = state.cells[r][c - 1];
       const same = v >= 0 && pv >= 0 && v === pv;
       if (same) { run++; }
       else {
@@ -52,8 +57,8 @@ export function findMatches(state: BoardState): MatchResult {
   for (let c = 0; c < state.cols; c++) {
     let run = 1;
     for (let r = 1; r <= state.rows; r++) {
-      const v  = r < state.rows ? (state.cells[r][c] as number) : -2;
-      const pv = (state.cells[r - 1][c] as number);
+      const v  = r < state.rows ? state.cells[r][c] : -2;
+      const pv = state.cells[r - 1][c];
       const same = v >= 0 && pv >= 0 && v === pv;
       if (same) { run++; }
       else {
@@ -102,7 +107,7 @@ export function clearMatches(state: BoardState, result: MatchResult): Set<string
   }
   for (const key of cleared) {
     const [r, c] = key.split(',').map(Number);
-    (state.cells[r][c] as number) = -1; // sentinel: empty
+    state.cells[r][c] = EMPTY_CELL;
   }
   return cleared;
 }
@@ -114,10 +119,10 @@ export function applyGravity(state: BoardState): GridPos[] {
   for (let c = 0; c < state.cols; c++) {
     let writeRow = state.rows - 1;
     for (let r = state.rows - 1; r >= 0; r--) {
-      if ((state.cells[r][c] as number) !== -1) {
+      if (state.cells[r][c] !== EMPTY_CELL) {
         if (r !== writeRow) {
           state.cells[writeRow][c] = state.cells[r][c];
-          (state.cells[r][c] as number) = -1;
+          state.cells[r][c] = EMPTY_CELL;
           moved.push({ col: c, row: writeRow });
         }
         writeRow--;
@@ -133,7 +138,7 @@ export function spawnTiles(state: BoardState): GridPos[] {
   const spawned: GridPos[] = [];
   for (let r = 0; r < state.rows; r++) {
     for (let c = 0; c < state.cols; c++) {
-      if ((state.cells[r][c] as number) === -1) {
+      if (state.cells[r][c] === EMPTY_CELL) {
         state.cells[r][c] = safeTile(state, r, c);
         spawned.push({ col: c, row: r });
       }
@@ -143,22 +148,22 @@ export function spawnTiles(state: BoardState): GridPos[] {
 }
 
 function safeTile(state: BoardState, row: number, col: number): TileTypeId {
-  const types = Array.from({ length: state.unlockedTypes }, (_, i) => i as TileTypeId);
+  const types: TileTypeId[] = Array.from({ length: state.unlockedTypes }, (_, i) => i);
   shuffle(types);
   for (const t of types) {
     if (!wouldMatch(state, row, col, t)) return t;
   }
-  return randInt(0, state.unlockedTypes - 1) as TileTypeId;
+  return randInt(0, state.unlockedTypes - 1);
 }
 
 function wouldMatch(state: BoardState, row: number, col: number, type: TileTypeId): boolean {
   let run = 1;
-  for (let dc = 1; col - dc >= 0 && (state.cells[row][col - dc] as number) === (type as number); dc++) run++;
-  for (let dc = 1; col + dc < state.cols && (state.cells[row][col + dc] as number) === (type as number); dc++) run++;
+  for (let dc = 1; col - dc >= 0 && state.cells[row][col - dc] === type; dc++) run++;
+  for (let dc = 1; col + dc < state.cols && state.cells[row][col + dc] === type; dc++) run++;
   if (run >= MIN_MATCH) return true;
   run = 1;
-  for (let dr = 1; row - dr >= 0 && (state.cells[row - dr][col] as number) === (type as number); dr++) run++;
-  for (let dr = 1; row + dr < state.rows && (state.cells[row + dr][col] as number) === (type as number); dr++) run++;
+  for (let dr = 1; row - dr >= 0 && state.cells[row - dr][col] === type; dr++) run++;
+  for (let dr = 1; row + dr < state.rows && state.cells[row + dr][col] === type; dr++) run++;
   return run >= MIN_MATCH;
 }
 
@@ -189,7 +194,7 @@ function hasSolvableSwap(state: BoardState): boolean {
 }
 
 function shuffleBoard(state: BoardState): void {
-  const flat: TileTypeId[] = state.cells.flat() as TileTypeId[];
+  const flat: TileTypeId[] = state.cells.flat();
   shuffle(flat);
   let i = 0;
   for (let r = 0; r < state.rows; r++) {
@@ -209,8 +214,11 @@ export function computeScore(result: MatchResult): ScoreDelta {
 }
 
 // ── Board expansion ───────────────────────────────────────────────────────────
+//
+// `maxTypes` is passed in by the caller (MatchSettler) instead of hard-coded,
+// so adding tiles to the registry doesn't require editing this file.
 
-export function expandBoard(state: BoardState): void {
+export function expandBoard(state: BoardState, maxTypes: number): void {
   state.cols++;
   state.rows++;
   // Add a new column to each existing row
@@ -220,7 +228,7 @@ export function expandBoard(state: BoardState): void {
   // Add a full new row
   state.cells.push(Array.from({ length: state.cols }, () => randTile(state.unlockedTypes)));
   state.linesMatchedSinceExpand = 0;
-  if (state.unlockedTypes < 9) state.unlockedTypes++;
+  if (state.unlockedTypes < maxTypes) state.unlockedTypes++;
   state.timeRemaining = Math.min(state.timeRemaining + 15, 60);
   ensureSolvable(state);
 }

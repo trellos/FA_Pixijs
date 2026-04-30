@@ -14,7 +14,8 @@
       "PowerShell($env:GH_TOKEN; gh auth status 2>&1; [System.Environment]::GetEnvironmentVariable\\(\"GH_TOKEN\", \"User\"\\))",
       "Bash(git remote *)",
       "Bash(git config *)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(npx vite *)"
     ]
   }
 }

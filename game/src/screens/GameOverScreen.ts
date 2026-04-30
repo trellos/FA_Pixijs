@@ -11,12 +11,12 @@ export class GameOverScreen extends BaseScreen {
   constructor(app: Application) {
     super(app);
     this.build(0);
-    EventBus.on(EV_GAME_OVER, this.onScore as (...args: unknown[]) => void);
+    EventBus.on(EV_GAME_OVER, this.onScore);
   }
 
-  private onScore = (score: unknown): void => {
+  private onScore = (score: number): void => {
     this.removeChildren();
-    this.build(score as number);
+    this.build(score);
     this.shake(14, 500);
   };
 
@@ -71,6 +71,6 @@ export class GameOverScreen extends BaseScreen {
   }
 
   override onHide(): void {
-    EventBus.off(EV_GAME_OVER, this.onScore as (...args: unknown[]) => void);
+    EventBus.off(EV_GAME_OVER, this.onScore);
   }
 }

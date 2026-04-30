@@ -261,7 +261,9 @@ export class BoardView extends Container {
 
     const promises: Promise<void>[] = [];
 
-    // New column (c = oldCols): top half slides from above, bottom half from below
+    // New column (c = oldCols): top half slides from above, bottom half from below.
+    // Stagger uses animator.delay (ticker-bound) so the effect pauses cleanly
+    // with the rest of the game — `setTimeout` would keep firing during pause.
     const newColMid = Math.floor((oldRows - 1) / 2);
     for (let r = 0; r < oldRows; r++) {
       const tv = this.tiles[r][oldCols];
@@ -272,13 +274,10 @@ export class BoardView extends Container {
         : this.tileY(oldRows - 1) + (r - newColMid) * STRIDE * 2;
       tv.y = startY;
       const delay = Math.abs(r - newColMid) * 20;
-      promises.push(new Promise<void>(resolve =>
-        setTimeout(() =>
-          animator.tween({ duration: 350, from: startY, to: targetY,
-            onUpdate: y => { tv.y = y; }, easing: easeOutBounce,
-          }).then(resolve)
-        , delay)
-      ));
+      promises.push(animator.tween({
+        duration: 350, from: startY, to: targetY, delay,
+        onUpdate: y => { tv.y = y; }, easing: easeOutBounce,
+      }));
     }
 
     // New row (r = oldRows): left half slides from left, right half from right
@@ -292,13 +291,10 @@ export class BoardView extends Container {
         : this.tileX(state.cols - 1) + (c - newRowMid) * STRIDE * 2;
       tv.x = startX;
       const delay = Math.abs(c - newRowMid) * 20;
-      promises.push(new Promise<void>(resolve =>
-        setTimeout(() =>
-          animator.tween({ duration: 350, from: startX, to: targetX,
-            onUpdate: x => { tv.x = x; }, easing: easeOutBounce,
-          }).then(resolve)
-        , delay)
-      ));
+      promises.push(animator.tween({
+        duration: 350, from: startX, to: targetX, delay,
+        onUpdate: x => { tv.x = x; }, easing: easeOutBounce,
+      }));
     }
 
     await Promise.all(promises);
